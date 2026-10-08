@@ -1,0 +1,262 @@
+:root {
+  --dbm-borda: #2a3441;
+  --dbm-fundo: #0f1620;
+  --dbm-painel: #151d29;
+  --dbm-topo: #101827;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--dbm-fundo);
+  color: #e6edf3;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.5rem 1rem;
+  background: var(--dbm-topo);
+  border-bottom: 1px solid var(--dbm-borda);
+}
+
+.marca {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 1.05rem;
+}
+
+.marca .pi-database {
+  color: var(--blue-400);
+  font-size: 1.3rem;
+}
+
+.conexao-atual {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.9rem;
+}
+
+.conexao-atual .url {
+  color: #8b98a9;
+  font-family: monospace;
+  font-size: 0.8rem;
+  max-width: 32rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vazio {
+  color: #7d8896;
+}
+
+.corpo {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.lateral {
+  width: 320px;
+  min-width: 240px;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--dbm-borda);
+  background: var(--dbm-painel);
+  overflow: hidden;
+}
+
+.principal {
+  flex: 1;
+  min-width: 0;
+  padding: 0.5rem 0.75rem;
+  overflow: hidden;
+}
+
+.painel-titulo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  color: #93a2b4;
+  border-bottom: 1px solid var(--dbm-borda);
+}
+
+/* Conexões */
+.conexoes-panel {
+  max-height: 42%;
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid var(--dbm-borda);
+}
+
+/* Explorer */
+.explorer {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.explorer-filtros {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.5rem 0.75rem;
+}
+
+.explorer-arvore {
+  flex: 1;
+  overflow: auto;
+  padding: 0 0.25rem 0.5rem;
+}
+
+.explorer-vazio,
+.vazio-aba,
+.vazio {
+  color: #7c8b9e;
+  padding: 1rem;
+}
+
+.p-input-icon-left {
+  position: relative;
+  display: inline-flex;
+}
+
+/* Formulário */
+.form-grid {
+  display: grid;
+  grid-template-columns: 9rem 1fr;
+  gap: 0.6rem 0.75rem;
+  align-items: center;
+}
+
+.form-grid label {
+  color: #9fb0c3;
+  font-size: 0.85rem;
+}
+
+/* Abas / conteúdo */
+.dados, .data-browser, .sql-console, .estrutura {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.barra {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0;
+  flex-wrap: wrap;
+}
+
+.alvo {
+  font-size: 0.85rem;
+  color: #b9c6d6;
+  margin-right: auto;
+}
+
+.alvo .aviso-ro {
+  margin-left: 0.5rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: 4px;
+  background: #4a3a0f;
+  color: #ffce54;
+  font-size: 0.7rem;
+}
+
+.editor-sql {
+  width: 100%;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.85rem;
+  background: #0b1119;
+  color: #e6edf3;
+}
+
+.saida {
+  flex: 1;
+  overflow: auto;
+  margin-top: 0.5rem;
+}
+
+.resultado {
+  margin-bottom: 0.75rem;
+}
+
+.resultado-titulo {
+  font-size: 0.78rem;
+  color: #93a2b4;
+  margin-bottom: 0.25rem;
+}
+
+.duracao {
+  font-size: 0.75rem;
+  color: #6f8faf;
+  margin-bottom: 0.4rem;
+}
+
+.nulo {
+  color: #6b7787;
+  font-style: italic;
+}
+
+.quebra {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.boas-vindas {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #7d8b9c;
+  gap: 0.5rem;
+}
+
+.boas-vindas i {
+  font-size: 3rem;
+  color: #2f4a68;
+}
+
+.vazio-aba {
+  padding: 2rem;
+  text-align: center;
+  color: #7d8b9c;
+}
+
+.rodape {
+  padding: 0.25rem 0;
+  font-size: 0.75rem;
+  color: #7d8b9c;
+}
+
+.form-grid label {
+  align-self: center;
+}
+
+.w-full {
+  width: 100%;
+}

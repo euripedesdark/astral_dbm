@@ -1,0 +1,38 @@
+server:
+  port: 8091
+
+spring:
+  application:
+    name: astral-dbm
+
+  # Banco PRÓPRIO do DBM (spec §0.14, §0.16): astral_dbm, schema public.
+  # NÃO apontar para o banco do ERP/Astral.
+  datasource:
+    url: ${DBM_DB_URL:jdbc:postgresql://127.0.0.1:5432/astral_dbm}
+    username: ${DBM_DB_USER:astral_dbm}
+    password: ${DBM_DB_PASSWORD:astral_dbm}
+    hikari:
+      maximum-pool-size: 8
+      minimum-idle: 1
+      pool-name: dbm-interno
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+
+  jackson:
+    default-property-inclusion: non_null
+
+  # O build do React vai para static/dist e é servido na raiz.
+  web:
+    resources:
+      static-locations: classpath:/static/dist/,classpath:/static/
+
+dbm:
+  # Pool dos bancos-ALVO (as conexões que o usuário cadastra).
+  pool:
+    max-size: 4
+    idle-timeout-ms: 60000
+  # Limite duro de linhas devolvidas por browse/consulta.
+  linhas-max: 1000
