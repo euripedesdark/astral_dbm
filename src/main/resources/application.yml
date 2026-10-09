@@ -36,3 +36,13 @@ dbm:
     idle-timeout-ms: 60000
   # Limite duro de linhas devolvidas por browse/consulta.
   linhas-max: 1000
+  # Consumo do contrato do Auth Service (§0.25). O DBM NÃO tem login próprio:
+  # quando ligado, exige "Authorization: Bearer <token>" e pergunta ao Auth
+  # Service quem é o portador. Desligado por padrão para a base seguir aberta
+  # apenas em rede local durante o desenvolvimento.
+  auth:
+    enabled: ${DBM_AUTH_ENABLED:false}
+    url: ${DBM_AUTH_URL:http://127.0.0.1:8181}
+    me-path: ${DBM_AUTH_ME_PATH:/api/v1/identity/me}
+    cache-seconds: ${DBM_AUTH_CACHE_SECONDS:60}
+    timeout-ms: ${DBM_AUTH_TIMEOUT_MS:3000}
