@@ -53,8 +53,9 @@ public class CatalogoController {
     public ApiResponse<Map<String, Object>> ddl(@PathVariable UUID id,
                                                 @RequestParam String schema,
                                                 @RequestParam String nome,
-                                                @RequestParam(defaultValue = "tabela") String tipo) {
-        return ApiResponse.ok(ddl.gerar(id, schema, nome, tipo));
+                                                @RequestParam(defaultValue = "tabela") String tipo,
+                                                @RequestParam(required = false) String tabela) {
+        return ApiResponse.ok(ddl.gerar(id, schema, nome, tipo, tabela));
     }
 
     @GetMapping("/dados")

@@ -1,5 +1,6 @@
 package com.astral.dbm.explorer;
 
+import com.astral.dbm.common.DbmException;
 import com.astral.dbm.common.Ident;
 import com.astral.dbm.conexao.ConexaoService;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -8,6 +9,7 @@ import org.springframework.stereotype.Service;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
@@ -27,19 +29,40 @@ public class DdlService {
         this.conexoes = conexoes;
     }
 
-    public Map<String, Object> gerar(UUID id, String schema, String nome, String tipo) {
+    public Map<String, Object> gerar(UUID id, String schema, String nome, String tipo, String tabela) {
         JdbcTemplate j = conexoes.jdbcDe(id);
         String reg = Ident.quote(schema) + "." + Ident.quote(nome);
+        String t = tipo == null || tipo.isBlank() ? "tabela" : tipo.toLowerCase(Locale.ROOT);
         String ddl;
-        String efetivo;
-        if ("view".equalsIgnoreCase(tipo)) {
-            String def = j.queryForObject(
-                    "select pg_get_viewdef(cast(? as regclass), true)", String.class, reg);
-            ddl = "CREATE OR REPLACE VIEW " + reg + " AS\n" + (def == null ? "" : def.strip());
-            efetivo = "view";
-        } else {
-            ddl = tabela(j, reg);
-            efetivo = "tabela";
+        String efetivo = t;
+        switch (t) {
+            case "view", "visao", "visão" -> {
+                String def = j.queryForObject(
+                        "select pg_get_viewdef(cast(? as regclass), true)", String.class, reg);
+                ddl = "CREATE OR REPLACE VIEW " + reg + " AS\n" + (def == null ? "" : def.strip());
+                efetivo = "view";
+            }
+            case "sequencia", "sequência", "sequence" -> {
+                ddl = sequencia(j, schema, nome);
+                efetivo = "sequencia";
+            }
+            case "funcao", "função", "procedure", "procedimento", "routine", "agregado" -> {
+                ddl = funcao(j, schema, nome);
+                efetivo = "funcao";
+            }
+            case "trigger", "gatilho" -> {
+                ddl = trigger(j, schema, nome, tabela);
+                efetivo = "trigger";
+            }
+            case "indice", "índice", "index" -> {
+                ddl = j.queryForObject(
+                        "select pg_get_indexdef(cast(? as regclass), 0, true)", String.class, reg) + ";";
+                efetivo = "indice";
+            }
+            default -> {
+                ddl = tabela(j, reg);
+                efetivo = "tabela";
+            }
         }
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("schema", schema);
@@ -47,6 +70,64 @@ public class DdlService {
         m.put("tipo", efetivo);
         m.put("ddl", ddl);
         return m;
+    }
+
+    private String sequencia(JdbcTemplate j, String schema, String nome) {
+        List<Map<String, Object>> r = j.queryForList("""
+                select pg_catalog.format_type(sq.seqtypid, null) as tipo,
+                       sq.seqstart as inicio, sq.seqincrement as incremento,
+                       sq.seqmin as minimo, sq.seqmax as maximo,
+                       sq.seqcache as cache, sq.seqcycle as ciclo
+                  from pg_sequence sq
+                  join pg_class c on c.oid = sq.seqrelid
+                  join pg_namespace n on n.oid = c.relnamespace
+                 where n.nspname = ? and c.relname = ?
+                """, schema, nome);
+        if (r.isEmpty()) {
+            throw DbmException.naoEncontrado("Sequência " + schema + "." + nome + " não encontrada");
+        }
+        Map<String, Object> s = r.get(0);
+        boolean ciclo = Boolean.TRUE.equals(s.get("ciclo"));
+        return "CREATE SEQUENCE " + Ident.quote(schema) + "." + Ident.quote(nome)
+                + "\n    AS " + s.get("tipo")
+                + " START WITH " + s.get("inicio")
+                + " INCREMENT BY " + s.get("incremento")
+                + " MINVALUE " + s.get("minimo")
+                + " MAXVALUE " + s.get("maximo")
+                + " CACHE " + s.get("cache")
+                + (ciclo ? " CYCLE" : " NO CYCLE") + ";";
+    }
+
+    private String funcao(JdbcTemplate j, String schema, String nome) {
+        List<String> defs = j.queryForList("""
+                select pg_get_functiondef(p.oid)
+                  from pg_proc p
+                  join pg_namespace n on n.oid = p.pronamespace
+                 where n.nspname = ? and p.proname = ?
+                 order by p.oid
+                """, String.class, schema, nome);
+        if (defs.isEmpty()) {
+            throw DbmException.naoEncontrado("Função " + schema + "." + nome + " não encontrada");
+        }
+        return String.join("\n\n", defs) + ";";
+    }
+
+    private String trigger(JdbcTemplate j, String schema, String nome, String tabela) {
+        boolean filtrarTabela = tabela != null && !tabela.isBlank();
+        String sql = """
+                select pg_get_triggerdef(t.oid, true)
+                  from pg_trigger t
+                  join pg_class c on c.oid = t.tgrelid
+                  join pg_namespace n on n.oid = c.relnamespace
+                 where n.nspname = ? and t.tgname = ?
+                """ + (filtrarTabela ? " and c.relname = ?" : "") + " order by t.oid";
+        List<String> defs = filtrarTabela
+                ? j.queryForList(sql, String.class, schema, nome, tabela)
+                : j.queryForList(sql, String.class, schema, nome);
+        if (defs.isEmpty()) {
+            throw DbmException.naoEncontrado("Trigger " + schema + "." + nome + " não encontrado");
+        }
+        return String.join(";\n\n", defs) + ";";
     }
 
     private String tabela(JdbcTemplate j, String reg) {

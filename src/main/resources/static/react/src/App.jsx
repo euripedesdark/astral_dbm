@@ -35,9 +35,9 @@ export default function App() {
     carregar();
   }, [carregar]);
 
-  const abrirObjeto = (schema, tabela, tipo) => {
+  const abrirObjeto = (schema, tabela, tipo, indiceAba = 0) => {
     setObjeto({ schema, tabela, tipo });
-    setAba(0);
+    setAba(indiceAba);
   };
 
   const selecionarConexao = (c) => {

@@ -90,17 +90,21 @@ npm run build
 ## O que já está implementado nesta base
 
 - **Conexões** — CRUD, teste de conexão, grupos, modo somente-leitura, timeout.
-- **Explorer** — schemas, tabelas e views; filtro.
+- **Explorer (estilo IBConsole)** — árvore por schema com **Tabelas, Views,
+  Sequências, Funções, Triggers, Tipos e Extensões**, contadores por grupo,
+  filtro em memória e **menu de contexto** (botão direito): abrir dados,
+  ver estrutura, ver DDL e copiar nome.
 - **Dados** — browse paginado estilo IBConsole, busca ILIKE.
 - **Estrutura** — colunas, chaves, índices e chaves estrangeiras.
 - **Bancos / Schemas** — lista de bancos do servidor (dono, codificação, tamanho),
   criar banco (com preview do SQL), drop database e criar/dropar schema.
   DROP exige **confirmação digitando o nome** e é recusado em conexão
   somente-leitura (§4.1/§4.2).
-- **DDL de objeto** — botão "Ver DDL" na Estrutura: `CREATE TABLE` reconstruído a
-  partir do catálogo (sequences, colunas, restrições e índices) e
-  `CREATE OR REPLACE VIEW` para views (§10.3). O script é autossuficiente —
-  aplicado num banco novo, recria o objeto.
+- **DDL de objeto** — "Ver DDL" na Estrutura e no menu de contexto do Explorer:
+  `CREATE TABLE` reconstruído a partir do catálogo (sequences, colunas,
+  restrições e índices), `CREATE OR REPLACE VIEW`, `CREATE SEQUENCE`,
+  `CREATE FUNCTION` e `CREATE TRIGGER` (§10.3). O DDL de tabela é
+  autossuficiente — aplicado num banco novo, recria o objeto.
 - **Console SQL** — execução multi-instrução, grade de resultado e
   **confirmação obrigatória para escrita** (defesa em profundidade, §0.7).
 - **Auditoria** — trilha de SQL e DDL em `dbm_execucao` (best-effort).

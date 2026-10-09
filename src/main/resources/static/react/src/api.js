@@ -58,8 +58,8 @@ export const api = {
     http.delete(`/conexoes/${id}/schemas/${encodeURIComponent(nome)}`, { params: { confirmacao, cascade } }),
 
   // DDL de objeto (menu "Objetos", §9/§10.3)
-  ddl: (id, schema, nome, tipo) =>
-    http.get(`/conexoes/${id}/ddl`, { params: { schema, nome, tipo } }),
+  ddl: (id, schema, nome, tipo, tabela) =>
+    http.get(`/conexoes/${id}/ddl`, { params: { schema, nome, tipo, tabela } }),
 };
 
 export default api;

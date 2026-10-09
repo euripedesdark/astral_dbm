@@ -137,6 +137,13 @@ body {
   padding: 1rem;
 }
 
+.explorer-dica {
+  padding: 0.35rem 0.75rem;
+  font-size: 0.72rem;
+  color: #6f7f92;
+  border-top: 1px solid var(--dbm-borda);
+}
+
 .p-input-icon-left {
   position: relative;
   display: inline-flex;

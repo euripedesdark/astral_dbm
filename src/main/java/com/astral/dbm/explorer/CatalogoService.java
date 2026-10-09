@@ -51,7 +51,87 @@ public class CatalogoService {
         m.put("schema", s);
         m.put("tabelas", tabelas);
         m.put("views", views);
+        m.put("sequencias", sequencias(j, s));
+        m.put("funcoes", funcoes(j, s));
+        m.put("triggers", triggers(j, s));
+        m.put("tipos", tipos(j, s));
+        m.put("extensoes", extensoes(j));
         return m;
+    }
+
+    /** Generators/sequences do schema (menu "Objetos" §9.9). */
+    private List<String> sequencias(JdbcTemplate j, String schema) {
+        return j.queryForList("""
+                select sequence_name
+                  from information_schema.sequences
+                 where sequence_schema = ?
+                 order by sequence_name
+                """, String.class, schema);
+    }
+
+    /** Funções e procedures definidos pelo usuário (exclui membros de extensão). */
+    private List<Map<String, Object>> funcoes(JdbcTemplate j, String schema) {
+        return j.queryForList("""
+                select p.proname as nome,
+                       case p.prokind when 'p' then 'PROCEDURE'
+                                      when 'a' then 'AGGREGATE'
+                                      when 'w' then 'WINDOW'
+                                      else 'FUNCTION' end as tipo,
+                       pg_get_function_result(p.oid) as retorno
+                  from pg_proc p
+                  join pg_namespace n on n.oid = p.pronamespace
+                 where n.nspname = ?
+                   and not exists (select 1 from pg_depend d
+                                    where d.objid = p.oid
+                                      and d.classid = 'pg_proc'::regclass
+                                      and d.deptype = 'e')
+                 order by p.proname
+                """, schema);
+    }
+
+    /** Triggers do usuário no schema (não internos de constraint). */
+    private List<Map<String, Object>> triggers(JdbcTemplate j, String schema) {
+        return j.queryForList("""
+                select t.tgname as nome, c.relname as tabela
+                  from pg_trigger t
+                  join pg_class c on c.oid = t.tgrelid
+                  join pg_namespace n on n.oid = c.relnamespace
+                 where n.nspname = ? and not t.tgisinternal
+                 order by t.tgname
+                """, schema);
+    }
+
+    /** Domínios, enums e tipos compostos/range do schema. */
+    private List<Map<String, Object>> tipos(JdbcTemplate j, String schema) {
+        return j.queryForList("""
+                select t.typname as nome,
+                       case t.typtype when 'e' then 'ENUM'
+                                      when 'd' then 'DOMAIN'
+                                      when 'c' then 'COMPOSITE'
+                                      when 'r' then 'RANGE'
+                                      when 'm' then 'MULTIRANGE'
+                                      else t.typtype::text end as tipo
+                  from pg_type t
+                  join pg_namespace n on n.oid = t.typnamespace
+                 where n.nspname = ?
+                   and t.typtype in ('e','d','c','r','m')
+                   and not exists (select 1 from pg_class c
+                                    where c.reltype = t.oid and c.relkind <> 'c')
+                   and not exists (select 1 from pg_depend d
+                                    where d.objid = t.oid
+                                      and d.classid = 'pg_type'::regclass
+                                      and d.deptype = 'e')
+                 order by t.typname
+                """, schema);
+    }
+
+    /** Extensões instaladas (visão do banco, não do schema). */
+    private List<Map<String, Object>> extensoes(JdbcTemplate j) {
+        return j.queryForList("""
+                select extname as nome, extversion as versao
+                  from pg_extension
+                 order by extname
+                """);
     }
 
     public List<Map<String, Object>> colunas(UUID id, String schema, String tabela) {
