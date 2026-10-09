@@ -2,10 +2,15 @@ import React, { useEffect, useState } from 'react';
 import { DataTable } from 'primereact/datatable';
 import { Column } from 'primereact/column';
 import { Tag } from 'primereact/tag';
+import { Button } from 'primereact/button';
+import { Dialog } from 'primereact/dialog';
 import api from '../api.js';
 
-export default function StructureView({ conexaoId, schema, tabela, toast }) {
+export default function StructureView({ conexaoId, schema, tabela, tipo = 'tabela', toast }) {
   const [est, setEst] = useState({ colunas: [], primarias: [], indices: [], estrangeiras: [] });
+  const [ddl, setDdl] = useState('');
+  const [ddlAberto, setDdlAberto] = useState(false);
+  const [gerandoDdl, setGerandoDdl] = useState(false);
 
   useEffect(() => {
     if (!conexaoId || !schema || !tabela) {
@@ -19,11 +24,47 @@ export default function StructureView({ conexaoId, schema, tabela, toast }) {
 
   const ehPk = (coluna) => est.primarias.includes(coluna);
 
+  const verDdl = async () => {
+    setGerandoDdl(true);
+    try {
+      const r = await api.ddl(conexaoId, schema, tabela, tipo);
+      setDdl(r.ddl);
+      setDdlAberto(true);
+    } catch (e) {
+      toast.current?.show({ severity: 'error', summary: 'DDL', detail: e.message, life: 6000 });
+    } finally {
+      setGerandoDdl(false);
+    }
+  };
+
   return (
     <div className="estrutura">
-      <h3>
-        <i className="pi pi-table" /> {schema}.<strong>{tabela}</strong>
-      </h3>
+      <div className="barra">
+        <h3>
+          <i className={`pi ${tipo === 'view' ? 'pi-eye' : 'pi-table'}`} /> {schema}.<strong>{tabela}</strong>
+        </h3>
+        <Button
+          label="Ver DDL"
+          icon="pi pi-code"
+          text
+          loading={gerandoDdl}
+          onClick={verDdl}
+          tooltip="Gerar CREATE a partir do estado existente"
+        />
+      </div>
+
+      <Dialog
+        header={`DDL — ${schema}.${tabela}`}
+        visible={ddlAberto}
+        style={{ width: '46rem' }}
+        onHide={() => setDdlAberto(false)}
+      >
+        <pre className="sql-previa">{ddl}</pre>
+        <div className="dialog-rodape">
+          <div />
+          <Button label="Fechar" text onClick={() => setDdlAberto(false)} />
+        </div>
+      </Dialog>
 
       <h4>Colunas</h4>
       <DataTable value={est.colunas} size="small" scrollable scrollHeight="20rem">

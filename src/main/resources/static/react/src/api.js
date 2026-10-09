@@ -44,6 +44,22 @@ export const api = {
     http.get(`/conexoes/${id}/dados`, { params: { schema, tabela, pagina, tamanho, busca } }),
   executar: (id, sql, confirmar) =>
     http.post(`/conexoes/${id}/executar`, { sql, confirmar }),
+
+  // Bancos (menu "Bancos", §4)
+  bancos: (id) => http.get(`/conexoes/${id}/bancos`),
+  preverBanco: (id, b) => http.post(`/conexoes/${id}/bancos/sql`, b),
+  criarBanco: (id, b) => http.post(`/conexoes/${id}/bancos`, b),
+  droparBanco: (id, nome, confirmacao, forcar) =>
+    http.delete(`/conexoes/${id}/bancos/${encodeURIComponent(nome)}`, { params: { confirmacao, forcar } }),
+
+  // Schemas (menu "Schemas", §4)
+  criarSchema: (id, nome, confirmar) => http.post(`/conexoes/${id}/schemas`, { nome, confirmar }),
+  droparSchema: (id, nome, confirmacao, cascade) =>
+    http.delete(`/conexoes/${id}/schemas/${encodeURIComponent(nome)}`, { params: { confirmacao, cascade } }),
+
+  // DDL de objeto (menu "Objetos", §9/§10.3)
+  ddl: (id, schema, nome, tipo) =>
+    http.get(`/conexoes/${id}/ddl`, { params: { schema, nome, tipo } }),
 };
 
 export default api;

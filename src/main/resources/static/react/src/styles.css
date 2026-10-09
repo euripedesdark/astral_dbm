@@ -260,3 +260,56 @@ body {
 .w-full {
   width: 100%;
 }
+
+/* Bancos / Schemas */
+.bancos {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.bancos-colunas {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 0.75rem;
+  flex: 1;
+  min-height: 0;
+}
+
+.cartao {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--dbm-painel);
+  border: 1px solid var(--dbm-borda);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.estrutura .barra h3 {
+  margin: 0;
+}
+
+.sql-previa {
+  margin-top: 0.6rem;
+  padding: 0.6rem;
+  background: #0b1119;
+  border: 1px solid var(--dbm-borda);
+  border-radius: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 22rem;
+  overflow: auto;
+}
+
+.dialog-rodape {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-top: 1rem;
+  flex-wrap: wrap;
+}

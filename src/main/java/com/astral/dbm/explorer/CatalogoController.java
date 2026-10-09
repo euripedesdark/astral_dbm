@@ -19,9 +19,11 @@ import java.util.UUID;
 public class CatalogoController {
 
     private final CatalogoService catalogo;
+    private final DdlService ddl;
 
-    public CatalogoController(CatalogoService catalogo) {
+    public CatalogoController(CatalogoService catalogo, DdlService ddl) {
         this.catalogo = catalogo;
+        this.ddl = ddl;
     }
 
     @GetMapping("/schemas")
@@ -44,6 +46,15 @@ public class CatalogoController {
                 "primarias", catalogo.chavesPrimarias(id, schema, tabela),
                 "indices", catalogo.indices(id, schema, tabela),
                 "estrangeiras", catalogo.estrangeiras(id, schema, tabela)));
+    }
+
+    /** DDL do objeto a partir do estado existente (spec §10.3). */
+    @GetMapping("/ddl")
+    public ApiResponse<Map<String, Object>> ddl(@PathVariable UUID id,
+                                                @RequestParam String schema,
+                                                @RequestParam String nome,
+                                                @RequestParam(defaultValue = "tabela") String tipo) {
+        return ApiResponse.ok(ddl.gerar(id, schema, nome, tipo));
     }
 
     @GetMapping("/dados")

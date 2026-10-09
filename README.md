@@ -23,7 +23,8 @@ migração inicial e o **código do produto**.
 ```
 ┌─────────────────────────────┐        JDBC (pool por conexão)
 │  React (static/react)       │
-│  Explorer · Dados · SQL     │
+│  Explorer · Dados ·         │
+│  Estrutura · Bancos · SQL   │
 └──────────────┬──────────────┘
                │ REST /api
 ┌──────────────▼──────────────┐      ┌──────────────────────────┐
@@ -92,14 +93,22 @@ npm run build
 - **Explorer** — schemas, tabelas e views; filtro.
 - **Dados** — browse paginado estilo IBConsole, busca ILIKE.
 - **Estrutura** — colunas, chaves, índices e chaves estrangeiras.
+- **Bancos / Schemas** — lista de bancos do servidor (dono, codificação, tamanho),
+  criar banco (com preview do SQL), drop database e criar/dropar schema.
+  DROP exige **confirmação digitando o nome** e é recusado em conexão
+  somente-leitura (§4.1/§4.2).
+- **DDL de objeto** — botão "Ver DDL" na Estrutura: `CREATE TABLE` reconstruído a
+  partir do catálogo (sequences, colunas, restrições e índices) e
+  `CREATE OR REPLACE VIEW` para views (§10.3). O script é autossuficiente —
+  aplicado num banco novo, recria o objeto.
 - **Console SQL** — execução multi-instrução, grade de resultado e
   **confirmação obrigatória para escrita** (defesa em profundidade, §0.7).
-- **Auditoria** — trilha de SQL em `dbm_execucao` (best-effort).
+- **Auditoria** — trilha de SQL e DDL em `dbm_execucao` (best-effort).
 - **Cifra** — senha do alvo em AES-GCM, nunca em claro na API.
 
 ## Próximos passos (da especificação)
 
-Menus de Bancos, Schemas, Objetos (designer/DDL), Rotinas, Backup/Restore,
+Menus de Objetos (designer), Rotinas, Backup/Restore, Ferramentas DBA,
 Inteligência (Query Risk) e Segurança/RBAC (§0.19, §13.8). A autenticação de
 produção é o token do Astral — o ponto de extensão está em
 `config/SecurityConfig.java`.

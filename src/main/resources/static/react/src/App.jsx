@@ -9,6 +9,7 @@ import Explorer from './components/Explorer.jsx';
 import DataBrowser from './components/DataBrowser.jsx';
 import StructureView from './components/StructureView.jsx';
 import SqlConsole from './components/SqlConsole.jsx';
+import BancosView from './components/BancosView.jsx';
 
 export default function App() {
   const toast = useRef(null);
@@ -117,10 +118,23 @@ export default function App() {
               </TabPanel>
               <TabPanel header="Estrutura" leftIcon="pi pi-sitemap">
                 {objeto ? (
-                  <StructureView conexaoId={selecionada.id} schema={objeto.schema} tabela={objeto.tabela} toast={toast} />
+                  <StructureView
+                    conexaoId={selecionada.id}
+                    schema={objeto.schema}
+                    tabela={objeto.tabela}
+                    tipo={objeto.tipo}
+                    toast={toast}
+                  />
                 ) : (
                   <div className="vazio-aba">Escolha uma tabela no Explorer.</div>
                 )}
+              </TabPanel>
+              <TabPanel header="Bancos" leftIcon="pi pi-database">
+                <BancosView
+                  conexaoId={selecionada.id}
+                  somenteLeitura={selecionada.somenteLeitura}
+                  toast={toast}
+                />
               </TabPanel>
               <TabPanel header="SQL" leftIcon="pi pi-terminal">
                 <SqlConsole
