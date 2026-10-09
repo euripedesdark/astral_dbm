@@ -90,6 +90,9 @@ npm run build
 ## O que já está implementado nesta base
 
 - **Conexões** — CRUD, teste de conexão, grupos, modo somente-leitura, timeout.
+- **Interface estilo IBConsole** — barra de menus (Conexões / Banco / Objeto /
+  Ferramentas / Ajuda) com ações e atalhos, além de **barra de status** (conexão,
+  driver, modo de acesso e URL) no rodapé.
 - **Explorer (estilo IBConsole)** — árvore por schema com **Tabelas, Views,
   Sequências, Funções, Triggers, Tipos e Extensões**, contadores por grupo,
   filtro em memória e **menu de contexto** (botão direito): abrir dados,

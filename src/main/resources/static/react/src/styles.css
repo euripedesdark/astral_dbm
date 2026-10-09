@@ -320,3 +320,58 @@ body {
   margin-top: 1rem;
   flex-wrap: wrap;
 }
+
+/* Barra de menus (estilo IBConsole) */
+.menubar-dbm {
+  background: var(--dbm-topo);
+  border-bottom: 1px solid var(--dbm-borda);
+}
+
+.menubar-dbm .p-menubar {
+  border: 0;
+  border-radius: 0;
+  padding: 0.1rem 0.5rem;
+  background: transparent;
+}
+
+.menubar-dbm .p-menubar-root-list > .p-menuitem > .p-menuitem-content > .p-menuitem-link {
+  padding: 0.4rem 0.65rem;
+  font-size: 0.85rem;
+}
+
+/* Barra de status (estilo IBConsole) */
+.statusbar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.2rem 0.75rem;
+  font-size: 0.75rem;
+  color: #8b98a9;
+  background: var(--dbm-topo);
+  border-top: 1px solid var(--dbm-borda);
+}
+
+.statusbar .st {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.statusbar .ligado {
+  color: #3fb950;
+  font-size: 0.6rem;
+}
+
+.statusbar .desligado {
+  color: #6b7280;
+  font-size: 0.6rem;
+}
+
+.statusbar .dir {
+  margin-left: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 40rem;
+}

@@ -1,6 +1,8 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Toast } from 'primereact/toast';
 import { TabView, TabPanel } from 'primereact/tabview';
+import { Menubar } from 'primereact/menubar';
+import { Dialog } from 'primereact/dialog';
 import { Button } from 'primereact/button';
 import { Tag } from 'primereact/tag';
 import api from './api.js';
@@ -13,6 +15,8 @@ import BancosView from './components/BancosView.jsx';
 
 export default function App() {
   const toast = useRef(null);
+  const conexoesRef = useRef(null);
+  const [sobre, setSobre] = useState(false);
   const [conexoes, setConexoes] = useState([]);
   const [drivers, setDrivers] = useState([]);
   const [grupos, setGrupos] = useState([]);
@@ -57,6 +61,61 @@ export default function App() {
     }
   };
 
+  const desconectar = () => {
+    setSelecionada(null);
+    setObjeto(null);
+  };
+
+  const menu = useMemo(
+    () => [
+      {
+        label: 'Conexões',
+        icon: 'pi pi-link',
+        items: [
+          { label: 'Nova conexão', icon: 'pi pi-plus', command: () => conexoesRef.current?.nova() },
+          { label: 'Atualizar lista', icon: 'pi pi-refresh', command: () => carregar() },
+          { separator: true },
+          { label: 'Testar conexão', icon: 'pi pi-bolt', disabled: !selecionada, command: () => conectar() },
+          { label: 'Desconectar', icon: 'pi pi-sign-out', disabled: !selecionada, command: desconectar },
+        ],
+      },
+      {
+        label: 'Banco',
+        icon: 'pi pi-database',
+        disabled: !selecionada,
+        items: [
+          { label: 'Objetos (Explorer)', icon: 'pi pi-sitemap', command: () => setAba(0) },
+          { label: 'Bancos e schemas', icon: 'pi pi-database', command: () => setAba(2) },
+        ],
+      },
+      {
+        label: 'Objeto',
+        icon: 'pi pi-table',
+        disabled: !objeto,
+        items: [
+          { label: 'Abrir dados', icon: 'pi pi-table', command: () => setAba(0) },
+          { label: 'Ver estrutura', icon: 'pi pi-sitemap', command: () => setAba(1) },
+        ],
+      },
+      {
+        label: 'Ferramentas',
+        icon: 'pi pi-wrench',
+        disabled: !selecionada,
+        items: [
+          { label: 'Console SQL', icon: 'pi pi-terminal', command: () => setAba(3) },
+          { label: 'Bancos e schemas', icon: 'pi pi-database', command: () => setAba(2) },
+        ],
+      },
+      {
+        label: 'Ajuda',
+        icon: 'pi pi-question-circle',
+        items: [{ label: 'Sobre o DBM', icon: 'pi pi-info-circle', command: () => setSobre(true) }],
+      },
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [selecionada, objeto, carregar],
+  );
+
   return (
     <div className="app">
       <Toast ref={toast} />
@@ -81,9 +140,14 @@ export default function App() {
         </div>
       </header>
 
+      <div className="menubar-dbm">
+        <Menubar model={menu} />
+      </div>
+
       <div className="corpo">
         <aside className="lateral">
           <ConexoesPanel
+            ref={conexoesRef}
             conexoes={conexoes}
             drivers={drivers}
             grupos={grupos}
@@ -147,6 +211,36 @@ export default function App() {
           )}
         </main>
       </div>
+
+      <footer className="statusbar">
+        <span className="st">
+          <i className={'pi pi-circle-fill ' + (selecionada ? 'ligado' : 'desligado')} />
+          {selecionada ? `Conectado — ${selecionada.nome}` : 'Desconectado'}
+        </span>
+        {selecionada && <span>{selecionada.driver}</span>}
+        {selecionada && <span>{selecionada.somenteLeitura ? 'Somente leitura' : 'Leitura/escrita'}</span>}
+        <span className="dir">{selecionada?.url || ''}</span>
+      </footer>
+
+      <Dialog
+        header="Sobre o Astral Database Manager"
+        visible={sobre}
+        style={{ width: '28rem' }}
+        onHide={() => setSobre(false)}
+      >
+        <p>
+          <strong>Astral Database Manager</strong> — base web inspirada no IBConsole (Interbase/Firebird).
+        </p>
+        <ul>
+          <li>Produto independente do Astral Platform / BrasilCloudERP.</li>
+          <li>Spring Boot 3 · Java 21 · React 19 · PrimeReact 10.</li>
+          <li>Versão 1.0.0-SNAPSHOT.</li>
+        </ul>
+        <div className="dialog-rodape">
+          <div />
+          <Button label="Fechar" text onClick={() => setSobre(false)} />
+        </div>
+      </Dialog>
     </div>
   );
 }

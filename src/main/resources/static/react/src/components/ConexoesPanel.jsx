@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useImperativeHandle, useState } from 'react';
 import { Button } from 'primereact/button';
 import { Dialog } from 'primereact/dialog';
 import { Dropdown } from 'primereact/dropdown';
@@ -24,7 +24,10 @@ const VAZIO = {
   timeoutMs: 30000,
 };
 
-export default function ConexoesPanel({ conexoes, drivers, grupos, selecionada, onSelecionar, onMudou, toast }) {
+const ConexoesPanel = React.forwardRef(function ConexoesPanel(
+  { conexoes, drivers, grupos, selecionada, onSelecionar, onMudou, toast },
+  ref,
+) {
   const [form, setForm] = useState(VAZIO);
   const [editandoId, setEditandoId] = useState(null);
   const [aberto, setAberto] = useState(false);
@@ -48,6 +51,8 @@ export default function ConexoesPanel({ conexoes, drivers, grupos, selecionada, 
     setEditandoId(c.id);
     setAberto(true);
   };
+
+  useImperativeHandle(ref, () => ({ nova: abrirNova }));
 
   const testar = async () => {
     setTestando(true);
@@ -195,4 +200,6 @@ export default function ConexoesPanel({ conexoes, drivers, grupos, selecionada, 
       <ConfirmDialog />
     </div>
   );
-}
+});
+
+export default ConexoesPanel;
