@@ -42,6 +42,7 @@ export default function App() {
 
   // Workbench Layout State
   const [showExplorer, setShowExplorer] = useState(true);
+  const [showMonitorDock, setShowMonitorDock] = useState(true);
 
   // Workbench Tabs
   const [tabs, setTabs] = useState([
@@ -291,15 +292,7 @@ export default function App() {
     setActiveTabIndex(tabs.length);
   };
 
-  const handleOpenMonitor = () => {
-    const existingIdx = tabs.findIndex((t) => t.id === 'perf-monitor');
-    if (existingIdx >= 0) {
-      setActiveTabIndex(existingIdx);
-    } else {
-      setTabs((prev) => [...prev, { id: 'perf-monitor', title: 'SQL Monitor', type: 'monitor' }]);
-      setActiveTabIndex(tabs.length);
-    }
-  };
+  const handleOpenMonitor = () => setShowMonitorDock((value) => !value);
 
   const handleCloseTab = (index) => {
     if (tabs.length === 1) return;
@@ -486,6 +479,15 @@ export default function App() {
             )}
           </div>
         </main>
+        {showMonitorDock && (
+          <aside className="astral-monitor-dock" aria-label="Monitor PostgreSQL">
+            <div className="astral-monitor-dock-header">
+              <span><i className="pi pi-chart-line" /> Performance Monitor</span>
+              <button type="button" onClick={() => setShowMonitorDock(false)} title="Fechar painel">×</button>
+            </div>
+            <PerformanceMonitor activeDatabase={activeDatabase} isConnected={isConnected} />
+          </aside>
+        )}
       </div>
 
       {/* 3. Bottom Status Bar */}

@@ -26,32 +26,12 @@ export default function BackupWizardModal({ visible, onHide, activeDatabase, toa
   ];
 
   const handleNext = () => {
-    if (step === 3) {
-      setStep(4);
-    } else if (step === 4) {
-      setStep(5);
-      setInProgress(true);
-      let p = 0;
-      const interval = setInterval(() => {
-        p += 25;
-        setProgressVal(p);
-        if (p >= 100) {
-          clearInterval(interval);
-          setInProgress(false);
-          toast.current?.show({
-            severity: 'success',
-            summary: 'Backup Concluído',
-            detail: `Arquivo gerado com sucesso: ${backupFile}`,
-            life: 5000,
-          });
-        }
-      }, 500);
-    } else if (step < 5) {
-      setStep((s) => s + 1);
-    } else {
-      onHide();
-      setStep(3);
+    if (step >= 4) {
+      toast.current?.show({ severity: 'warn', summary: 'Backup não disponível',
+        detail: 'O backend Rust ainda não implementa geração de backup. Nenhum arquivo foi criado.', life: 7000 });
+      return;
     }
+    setStep((current) => Math.min(4, current + 1));
   };
 
   const handleBack = () => {

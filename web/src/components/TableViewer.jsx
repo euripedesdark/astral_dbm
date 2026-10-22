@@ -27,7 +27,7 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
   });
 
   // Settings
-  const [autoSave, setAutoSave] = useState(true);
+  const [autoSave, setAutoSave] = useState(false); // Explicit confirmation by default
 
   // Selection & In-Place Editing State
   const [selectedRowIndex, setSelectedRowIndex] = useState(0);
@@ -149,16 +149,20 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
     const pks = (structure.colunas || []).filter((c) => c.is_primary_key).map((c) => c.name);
     if (pks.length > 0) return pks;
     if (dataColumns.includes('id')) return ['id'];
-    return dataColumns;
+    return []; // No unsafe UPDATE by all columns when a primary key is absent
   }, [structure.colunas, dataColumns]);
 
   // --- SAVE ROW DIRECTLY ---
   const saveSingleRow = async (rowKey, modifiedFields, originalRow, isNew = false) => {
     if (!activeDatabase || !table) return;
     const pkCols = getPkColumns();
+    if (!isNew && pkCols.length === 0) {
+      toast.current?.show({ severity: 'error', summary: 'Edição indisponível', detail: 'Tabela sem chave primária ou ID identificado.', life: 5000 });
+      return false;
+    }
     const keys = {};
     pkCols.forEach((pk) => {
-      keys[pk] = originalRow[pk];
+      keys[pk] = originalRow[pk] === 'NULL' ? null : originalRow[pk];
     });
 
     const valuesToSave = {};
@@ -231,6 +235,10 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
 
   // --- IN-LINE CELL EDITING ---
   const startCellEdit = (row, column) => {
+    if (getPkColumns().includes(column)) {
+      toast.current?.show({ severity: 'warn', summary: 'Chave primária protegida', detail: 'Para segurança, a chave primária não pode ser alterada na grade.', life: 3000 });
+      return;
+    }
     const rowKey = row.__rowKey;
     const currentVal = dirtyRows[rowKey]?.modified?.[column] !== undefined
       ? dirtyRows[rowKey].modified[column]
@@ -473,7 +481,14 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
 
   // Manual Post (Batch)
   const handlePostChanges = async () => {
-    await commitCellEdit();
+    if (editingCell) {
+      toast.current?.show({ severity: 'warn', summary: 'Conclua a edição', detail: 'Pressione Enter para confirmar a célula antes de salvar.', life: 3000 });
+      return;
+    }
+    if (getPkColumns().length === 0) {
+      toast.current?.show({ severity: 'error', summary: 'Edição indisponível', detail: 'Não foi identificada chave primária segura.', life: 5000 });
+      return;
+    }
     const dirtyKeys = Object.keys(dirtyRows);
     if (dirtyKeys.length === 0) {
       toast.current?.show({
@@ -986,12 +1001,15 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
               />
               <Button
                 icon="pi pi-window-maximize"
-                label="Formulário (✎)"
+                label="Editar célula"
                 className="p-button-sm p-button-info p-button-outlined font-bold"
-                tooltip="Abrir Editor de Formulário do Registro (Estilo IBExpert)"
+                tooltip="Editar diretamente na grade, sem outra janela"
                 tooltipOptions={{ position: 'bottom' }}
                 disabled={dataRows.length === 0}
-                onClick={() => openRecordEditor(dataRows[selectedRowIndex], 'edit')}
+                onClick={() => {
+                  const col = dataColumns.find((name) => !getPkColumns().includes(name));
+                  if (col) startCellEdit(dataRows[selectedRowIndex], col);
+                }}
               />
               <Button
                 icon="pi pi-trash"
@@ -1135,9 +1153,12 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
                   return (
                     <div
                       className="flex align-items-center justify-content-center cursor-pointer"
-                      title="Clique duplo para abrir no Formulário"
+                      title="Clique para selecionar; duplo clique para editar uma célula na grade"
                       onClick={() => setSelectedRowIndex(rowIndex)}
-                      onDoubleClick={() => openRecordEditor(r, 'edit')}
+                      onDoubleClick={() => {
+                        const col = dataColumns.find((name) => !getPkColumns().includes(name));
+                        if (col) startCellEdit(r, col);
+                      }}
                     >
                       {icon}
                       <span className="text-muted text-xs">{r.__rowNum}</span>
@@ -1175,10 +1196,11 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
                             onClick={(e) => e.stopPropagation()}
                             onMouseDown={(e) => e.stopPropagation()}
                           >
-                            <InputText
+                            <input type="text"
                               ref={cellInputRef}
                               value={editingValue}
                               onChange={(e) => setEditingValue(e.target.value)}
+                              onBlur={() => commitCellEdit()}
                               onKeyDown={(e) => {
                                 if (e.key === 'Enter') {
                                   e.preventDefault();
@@ -1215,7 +1237,7 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
                       return (
                         <div
                           className={`ib-cell-view cursor-pointer py-1 px-1 border-round ${cellClass}`}
-                          title="Clique para editar | Botão direito para opções"
+                          title="Clique para editar diretamente · Enter confirma · Esc cancela"
                           onClick={(e) => {
                             e.stopPropagation();
                             setSelectedRowIndex(rowIndex);
@@ -1252,7 +1274,7 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
             <div className="flex gap-2">
               <span>Clique em qualquer célula para editar inline</span>
               <span>·</span>
-              <span>Duplo clique no # para abrir Formulário</span>
+              <span>Enter conclui a célula · Post grava no banco · Esc cancela</span>
             </div>
           </div>
         </TabPanel>

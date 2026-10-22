@@ -68,6 +68,16 @@ export default function RibbonBar({
 
   return (
     <div className="ib-ribbon-bar astral-ribbon-refresh">
+      <div className="astral-desktop-title">
+        <div className="astral-desktop-brand">
+          <i className="pi pi-database" />
+          <strong>ASTRAL DBM</strong><span>v2.1 · Workspaces</span>
+        </div>
+        <div className="astral-desktop-database">
+          <span>Workspace</span><strong>{activeDatabase?.nome || 'Nenhum banco'}</strong>
+          <i className={isConnected ? 'pi pi-circle-fill astral-online' : 'pi pi-circle-fill astral-offline'} />
+        </div>
+      </div>
       {/* 1. Top InterBase Menu Strip */}
       <div className="ib-menu-strip" ref={menuBarRef}>
         {/* Menu: File */}

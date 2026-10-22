@@ -1,178 +1,58 @@
-import React, { useState, useEffect } from 'react';
-import { Button } from 'primereact/button';
-import { Tag } from 'primereact/tag';
+import React, { useEffect, useState } from 'react';
+import api from '../api.js';
 
 export default function PerformanceMonitor({ activeDatabase, isConnected }) {
-  const [cpu, setCpu] = useState(18);
-  const [memory, setMemory] = useState(384);
-  const [connections, setConnections] = useState(8);
-  const [tps, setTps] = useState(42);
-  const [history, setHistory] = useState([
-    { t: '10:00', cpu: 12, mem: 340, conn: 6, tps: 20 },
-    { t: '10:15', cpu: 28, mem: 360, conn: 9, tps: 65 },
-    { t: '10:30', cpu: 15, mem: 355, conn: 8, tps: 34 },
-    { t: '10:45', cpu: 35, mem: 380, conn: 12, tps: 88 },
-    { t: '11:00', cpu: 18, mem: 384, conn: 8, tps: 42 },
-  ]);
-
+  const [stats, setStats] = useState(null);
+  const [history, setHistory] = useState([]);
+  const [error, setError] = useState('');
   useEffect(() => {
-    const timer = setInterval(() => {
-      const now = new Date().toLocaleTimeString().slice(3, 8);
-      const newCpu = Math.floor(10 + Math.random() * 30);
-      const newMem = Math.floor(370 + Math.random() * 40);
-      const newConn = Math.floor(5 + Math.random() * 10);
-      const newTps = Math.floor(25 + Math.random() * 60);
+    setStats(null); setHistory([]); setError('');
+    if (!isConnected || !activeDatabase?.id) return;
+    let cancelled = false;
+    async function load() {
+      try {
+        const data = await api.stats(activeDatabase.id);
+        if (cancelled) return;
+        setStats(data); setError('');
+        setHistory((previous) => [...previous.slice(-28), {
+          t: new Date().toLocaleTimeString(),
+          conns: Number(data.active_connections || 0),
+          commits: Number(data.transactions_committed || 0),
+          rollbacks: Number(data.transactions_rolled_back || 0),
+        }]);
+      } catch (e) { if (!cancelled) setError(e.message || 'Falha na leitura'); }
+    }
+    load();
+    const interval = setInterval(load, 10000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [activeDatabase?.id, isConnected]);
 
-      setCpu(newCpu);
-      setMemory(newMem);
-      setConnections(newConn);
-      setTps(newTps);
-
-      setHistory((prev) => {
-        const next = [...prev.slice(1), { t: now, cpu: newCpu, mem: newMem, conn: newConn, tps: newTps }];
-        return next;
-      });
-    }, 3000);
-
-    return () => clearInterval(timer);
-  }, []);
-
-  return (
-    <div className="perf-monitor-view">
-      {/* Top Banner Toolbar */}
-      <div className="perf-toolbar">
-        <div className="flex align-items-center gap-3">
-          <span className="perf-title">
-            <i className="pi pi-chart-line text-blue-400 mr-2" />
-            Performance Advisor &amp; SQL Monitor
-          </span>
-          <Tag
-            severity={isConnected ? 'success' : 'warning'}
-            value={isConnected ? `Monitorando: ${activeDatabase?.nome || 'Banco Ativo'}` : 'Desconectado'}
-          />
-        </div>
-        <div className="flex gap-2">
-          <Button icon="pi pi-refresh" label="Real-time" text size="small" />
-          <Button icon="pi pi-calendar" label="Last Hour" text size="small" />
-        </div>
+  const graph = (key, color) => {
+    if (history.length < 2) return <p className="astral-chart-empty">Aguardando amostras reais...</p>;
+    const data = key === 'tps'
+      ? history.map((p, i) => i ? Math.max(0, (p.commits - history[i - 1].commits) / 10) : 0)
+      : history.map((p) => p.conns);
+    const max = Math.max(1, ...data);
+    const points = data.map((v, i) => `${Math.round(12 + i * 288 / (data.length - 1))},${Math.round(112 - v / max * 98)}`).join(' ');
+    return <svg viewBox="0 0 312 126" role="img" aria-label="Métricas observadas no PostgreSQL">
+      {[14,38,63,88,112].map((y) => <line key={y} x1="12" y1={y} x2="302" y2={y} stroke="#36475a" />)}
+      <polyline fill="none" stroke={color} strokeWidth="2.3" strokeLinejoin="round" points={points}/>
+    </svg>;
+  };
+  return <div className="astral-real-monitor">
+    <div className="astral-monitor-source"><i className="pi pi-check-circle"/> PostgreSQL · pg_stat_database</div>
+    {!isConnected && <p>Conecte um banco para visualizar métricas reais.</p>}
+    {error && <p className="astral-monitor-error">{error}</p>}
+    {stats && <>
+      <div className="astral-stats-row">
+        <div><small>Conexões</small><strong>{stats.active_connections}</strong></div>
+        <div><small>Commits</small><strong>{Number(stats.transactions_committed).toLocaleString('pt-BR')}</strong></div>
+        <div><small>Rollbacks</small><strong>{Number(stats.transactions_rolled_back).toLocaleString('pt-BR')}</strong></div>
       </div>
-
-      {/* 2x2 Grid matching Image C */}
-      <div className="perf-grid">
-        {/* Card 1: CPU Usage */}
-        <div className="perf-card">
-          <div className="card-header">
-            <span>CPU Usage (%)</span>
-            <span className="badge-time">Real-time · {cpu}%</span>
-          </div>
-          <div className="card-body">
-            <svg viewBox="0 0 400 140" className="chart-svg">
-              <defs>
-                <linearGradient id="cpuGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#007acc" stopOpacity="0.4" />
-                  <stop offset="100%" stopColor="#007acc" stopOpacity="0.0" />
-                </linearGradient>
-              </defs>
-              <polyline
-                fill="url(#cpuGrad)"
-                stroke="#007acc"
-                strokeWidth="2"
-                points={`0,140 0,${140 - history[0].cpu * 2} 80,${140 - history[1].cpu * 2} 160,${140 - history[2].cpu * 2} 240,${140 - history[3].cpu * 2} 320,${140 - history[4].cpu * 2} 400,${140 - cpu * 2} 400,140`}
-              />
-              <polyline
-                fill="none"
-                stroke="#38bdf8"
-                strokeWidth="2.5"
-                points={`0,${140 - history[0].cpu * 2} 80,${140 - history[1].cpu * 2} 160,${140 - history[2].cpu * 2} 240,${140 - history[3].cpu * 2} 320,${140 - history[4].cpu * 2} 400,${140 - cpu * 2}`}
-              />
-            </svg>
-            <div className="chart-legend">
-              <span className="legend-dot" style={{ background: '#38bdf8' }} /> CPU %
-              <span className="legend-dot ml-3" style={{ background: '#f59e0b' }} /> I/O Wait
-            </div>
-          </div>
-        </div>
-
-        {/* Card 2: Memory Usage */}
-        <div className="perf-card">
-          <div className="card-header">
-            <span>Memory Usage (MB)</span>
-            <span className="badge-time">Real-time · {memory} MB</span>
-          </div>
-          <div className="card-body">
-            <svg viewBox="0 0 400 140" className="chart-svg">
-              <defs>
-                <linearGradient id="memGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#10b981" stopOpacity="0.4" />
-                  <stop offset="100%" stopColor="#10b981" stopOpacity="0.0" />
-                </linearGradient>
-              </defs>
-              <polyline
-                fill="url(#memGrad)"
-                stroke="#10b981"
-                strokeWidth="2"
-                points={`0,140 0,${140 - (history[0].mem - 300)} 80,${140 - (history[1].mem - 300)} 160,${140 - (history[2].mem - 300)} 240,${140 - (history[3].mem - 300)} 320,${140 - (history[4].mem - 300)} 400,${140 - (memory - 300)} 400,140`}
-              />
-              <polyline
-                fill="none"
-                stroke="#34d399"
-                strokeWidth="2.5"
-                points={`0,${140 - (history[0].mem - 300)} 80,${140 - (history[1].mem - 300)} 160,${140 - (history[2].mem - 300)} 240,${140 - (history[3].mem - 300)} 320,${140 - (history[4].mem - 300)} 400,${140 - (memory - 300)}`}
-              />
-            </svg>
-            <div className="chart-legend">
-              <span className="legend-dot" style={{ background: '#34d399' }} /> Buffer Cache
-              <span className="legend-dot ml-3" style={{ background: '#a78bfa' }} /> Sort/Work Memory
-            </div>
-          </div>
-        </div>
-
-        {/* Card 3: Active Connections */}
-        <div className="perf-card">
-          <div className="card-header">
-            <span>Active Connections</span>
-            <span className="badge-time">Ativas · {connections}</span>
-          </div>
-          <div className="card-body flex justify-content-around align-items-end pt-4 pb-2" style={{ height: '140px' }}>
-            {history.map((h, i) => (
-              <div key={i} className="bar-col flex flex-column align-items-center">
-                <div
-                  className="bar-fill"
-                  style={{
-                    height: `${Math.max(10, h.conn * 8)}px`,
-                    width: '32px',
-                    background: '#3b82f6',
-                    borderRadius: '4px 4px 0 0',
-                  }}
-                />
-                <span className="text-xs text-muted mt-1">{h.t}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Card 4: Transactions Per Second (TPS) */}
-        <div className="perf-card">
-          <div className="card-header">
-            <span>Transactions Per Second (TPS)</span>
-            <span className="badge-time">Pico · {tps} TPS</span>
-          </div>
-          <div className="card-body">
-            <svg viewBox="0 0 400 140" className="chart-svg">
-              <polyline
-                fill="none"
-                stroke="#eab308"
-                strokeWidth="2.5"
-                points={`0,${140 - history[0].tps} 80,${140 - history[1].tps} 160,${140 - history[2].tps} 240,${140 - history[3].tps} 320,${140 - history[4].tps} 400,${140 - tps}`}
-              />
-            </svg>
-            <div className="chart-legend">
-              <span className="legend-dot" style={{ background: '#eab308' }} /> Commits / seg
-              <span className="legend-dot ml-3" style={{ background: '#ef4444' }} /> Rollbacks
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+      <section className="astral-monitor-chart"><header>Conexões ativas <span>10 s</span></header>{graph('conns','#53a9fa')}</section>
+      <section className="astral-monitor-chart"><header>Commits/s entre amostras <span>10 s</span></header>{graph('tps','#5bd398')}</section>
+      <div className="astral-monitor-foot">Banco: {stats.database_name} · Tamanho: {stats.database_size}</div>
+      <div className="astral-monitor-note">CPU e memória não estão disponíveis na API; nenhum dado é simulado.</div>
+    </>}
+  </div>;
 }

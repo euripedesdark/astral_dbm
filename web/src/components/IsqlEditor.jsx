@@ -349,10 +349,17 @@ export default function IsqlEditor({ activeDatabase, isConnected, initialSql, on
       )}
 
       {/* Query Code Area */}
-      <div className="ib-query-input-pane">
+      <div className="ib-query-input-pane astral-query-canvas">
+        <div className="astral-line-numbers" aria-hidden="true">
+          {sql.split('\n').map((_, i) => <div key={i}>{i + 1}</div>)}
+        </div>
         <textarea
           value={sql}
           onChange={(e) => handleSqlChange(e.target.value)}
+          onScroll={(e) => {
+            const gutter = e.currentTarget.previousElementSibling;
+            if (gutter) gutter.scrollTop = e.currentTarget.scrollTop;
+          }}
           onKeyDown={(e) => {
             if (e.key === 'F9' || e.key === 'F5' || (e.key === 'Enter' && (e.ctrlKey || e.metaKey))) {
               e.preventDefault();
