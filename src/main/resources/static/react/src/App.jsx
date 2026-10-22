@@ -22,7 +22,9 @@ export default function App() {
   const [grupos, setGrupos] = useState([]);
   const [selecionada, setSelecionada] = useState(null);
   const [objeto, setObjeto] = useState(null);
-  const [aba, setAba] = useState(0);
+  const [aba, setAba] = useState(3);
+  const [ribbonTab, setRibbonTab] = useState('Query');
+  const [navegadorAberto, setNavegadorAberto] = useState(true);
 
   const carregar = useCallback(async () => {
     try {
@@ -120,10 +122,10 @@ export default function App() {
     <div className="app">
       <Toast ref={toast} />
 
-      <header className="topbar">
+      <header className="topbar desktop-titlebar">
         <div className="marca">
           <i className="pi pi-database" />
-          <span>Astral <strong>Database Manager</strong></span>
+          <span>Astral <strong>DBM</strong></span><span className="desktop-window-title">Astral DBM v2.1 - Workspaces</span>
         </div>
         <div className="conexao-atual">
           {selecionada ? (
@@ -140,12 +142,35 @@ export default function App() {
         </div>
       </header>
 
-      <div className="menubar-dbm">
-        <Menubar model={menu} />
-      </div>
+      <div className="menubar-dbm"><Menubar model={menu} /></div>
+      <section className="ribbon" aria-label="Desktop ribbon">
+        <div className="ribbon-tabs">
+          {['File','Edit','Database','Query','Monitoring','Tools'].map(t => <button key={t} type="button" className={ribbonTab === t ? 'ribbon-tab active' : 'ribbon-tab'} onClick={() => setRibbonTab(t)}>{t}</button>)}
+        </div>
+        <div className="ribbon-actions">
+          <div className="ribbon-group">
+            <button type="button" onClick={() => conexoesRef.current?.nova()}><i className="pi pi-plus-circle" /><span>New Connection</span></button>
+            <button type="button" disabled={!selecionada} onClick={conectar}><i className="pi pi-link" /><span>Connect</span></button>
+            <button type="button" disabled={!selecionada} onClick={desconectar}><i className="pi pi-sign-out" /><span>Disconnect</span></button>
+            <small>CONNECTION</small>
+          </div>
+          <div className="ribbon-group">
+            <button type="button" disabled={!selecionada} onClick={() => setAba(3)}><i className="pi pi-code" /><span>SQL Editor</span></button>
+            <button type="button" disabled={!selecionada} onClick={() => setAba(0)}><i className="pi pi-table" /><span>Data</span></button>
+            <button type="button" disabled={!selecionada} onClick={() => setAba(1)}><i className="pi pi-sitemap" /><span>Schema DDL</span></button>
+            <small>QUERY TOOLS</small>
+          </div>
+          <div className="ribbon-group">
+            <button type="button" onClick={() => setNavegadorAberto(v => !v)}><i className="pi pi-bars" /><span>Navigator</span></button>
+            <button type="button" onClick={carregar}><i className="pi pi-refresh" /><span>Refresh</span></button>
+            <button type="button" disabled={!selecionada} onClick={() => setAba(2)}><i className="pi pi-database" /><span>Databases</span></button>
+            <small>WORKSPACE</small>
+          </div>
+        </div>
+      </section>
 
       <div className="corpo">
-        <aside className="lateral">
+        <aside className={navegadorAberto ? "lateral" : "lateral collapsed"}><div className="navigator-caption"><i className="pi pi-compass" /> Database Navigator</div>
           <ConexoesPanel
             ref={conexoesRef}
             conexoes={conexoes}
@@ -164,7 +189,7 @@ export default function App() {
           />
         </aside>
 
-        <main className="principal">
+        <main className="principal"><div className="workspace-caption"><i className="pi pi-folder-open" /> Workspaces <span className="workspace-connection">{selecionada?.nome || "No active connection"}</span></div>
           {!selecionada ? (
             <div className="boas-vindas">
               <i className="pi pi-database" />
@@ -173,7 +198,7 @@ export default function App() {
             </div>
           ) : (
             <TabView activeIndex={aba} onTabChange={(e) => setAba(e.index)}>
-              <TabPanel header="Dados" leftIcon="pi pi-table">
+              <TabPanel header={objeto ? `Data: ${objeto.tabela}` : "Data"} leftIcon="pi pi-table">
                 {objeto ? (
                   <DataBrowser conexaoId={selecionada.id} schema={objeto.schema} tabela={objeto.tabela} toast={toast} />
                 ) : (
@@ -200,7 +225,7 @@ export default function App() {
                   toast={toast}
                 />
               </TabPanel>
-              <TabPanel header="SQL" leftIcon="pi pi-terminal">
+              <TabPanel header="SQL Editor" leftIcon="pi pi-terminal">
                 <SqlConsole
                   conexaoId={selecionada.id}
                   somenteLeitura={selecionada.somenteLeitura}
