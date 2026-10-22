@@ -92,13 +92,13 @@ export default function SqlConsole({ conexaoId, toast, somenteLeitura }) {
     <div className="sql-console desktop-sql">
       <div className="sql-editor-toolbar">
         <Button icon="pi pi-play" label="Run SQL (F9)" className="run-sql" disabled={executando} onClick={() => rodar(false)} />
-        <Button icon="pi pi-align-left" label="Format" outlined onClick={() => setSql(v => v.replace(/\\s+(FROM|WHERE|GROUP BY|ORDER BY|JOIN|LEFT JOIN|LIMIT)\\b/gi, '\\n$1'))} />
+        <Button icon="pi pi-align-left" label="Format" outlined onClick={() => setSql(v => v.replace(/\s+(FROM|WHERE|GROUP BY|ORDER BY|JOIN|LEFT JOIN|LIMIT)\b/gi, '\n$1'))} />
         <Button icon="pi pi-eraser" label="Clear" text onClick={() => { setSql(''); setSaida(null); }} />
         {somenteLeitura && <span className="aviso-ro">Read only</span>}
       </div>
       {executando && <ProgressBar mode="indeterminate" style={{ height: '3px' }} />}
       <div className="sql-editor-region">
-        <div className="sql-editor-lines" aria-hidden="true">{sql.split('\\n').map((_, i) => <div key={i}>{i + 1}</div>)}</div>
+        <div className="sql-editor-lines" aria-hidden="true">{sql.split('\n').map((_, i) => <div key={i}>{i + 1}</div>)}</div>
         <textarea spellCheck={false} aria-label="SQL editor" value={sql} onChange={e => setSql(e.target.value)}
           onKeyDown={e => { if (e.key === 'F9' || (e.key === 'Enter' && (e.ctrlKey || e.metaKey))) { e.preventDefault(); rodar(false); } }}
           className="editor-sql" placeholder="Write SQL here..." />
