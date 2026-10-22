@@ -4,12 +4,65 @@ import { DataTable } from 'primereact/datatable';
 import { Column } from 'primereact/column';
 import { Button } from 'primereact/button';
 import { InputText } from 'primereact/inputtext';
+import { InputNumber } from 'primereact/inputnumber';
 import { InputTextarea } from 'primereact/inputtextarea';
 import { Dialog } from 'primereact/dialog';
 import { Dropdown } from 'primereact/dropdown';
 import { ConfirmDialog, confirmDialog } from 'primereact/confirmdialog';
 import { ContextMenu } from 'primereact/contextmenu';
 import api from '../api.js';
+
+// Helper: detect type characteristics from metadata
+function getColTypeInfo(colMeta) {
+  const dt = (colMeta?.data_type || colMeta?.udt_name || '').toLowerCase();
+  const isNumeric = [
+    'int8', 'int4', 'int2', 'numeric', 'float8', 'float4',
+    'decimal', 'integer', 'bigint', 'smallint', 'double precision',
+    'real', 'serial', 'bigserial', 'money', 'oid'
+  ].some((t) => dt.includes(t));
+  const isBool = dt === 'bool' || dt === 'boolean';
+  const isDate = ['date', 'timestamp', 'timestamptz', 'time'].some((t) => dt.includes(t));
+  const isJson = dt === 'json' || dt === 'jsonb';
+  const isLongText = dt === 'text' || isJson || dt.includes('varchar(max)');
+  return { dataType: dt || 'varchar', isNumeric, isBool, isDate, isJson, isLongText };
+}
+
+// Helper: cell renderer that preserves data types (never converts numbers to char)
+function formatCell(val, colMeta) {
+  if (val === null || val === undefined || val === 'NULL') {
+    return <span className="ib-null-badge">&lt;NULL&gt;</span>;
+  }
+  const { isNumeric, isBool, isDate, isJson } = getColTypeInfo(colMeta);
+
+  if (isBool || typeof val === 'boolean') {
+    const isTrue = val === true || String(val).toLowerCase() === 'true';
+    return (
+      <span className={`ib-bool-badge ${isTrue ? 'ib-bool-true' : 'ib-bool-false'}`}>
+        {isTrue ? 'TRUE' : 'FALSE'}
+      </span>
+    );
+  }
+
+  if (isNumeric || (typeof val === 'number' && !isNaN(val))) {
+    const formatted = typeof val === 'number' ? val.toLocaleString('pt-BR') : String(val);
+    return <span className="ib-numeric-cell font-mono">{formatted}</span>;
+  }
+
+  if (isDate) {
+    return (
+      <span className="ib-date-cell font-mono">
+        <i className="pi pi-calendar text-xs mr-1 text-gray-400" />
+        {String(val)}
+      </span>
+    );
+  }
+
+  if (isJson || typeof val === 'object') {
+    return <span className="ib-json-cell font-mono">{typeof val === 'object' ? JSON.stringify(val) : String(val)}</span>;
+  }
+
+  return <span className="ib-text-cell">{String(val)}</span>;
+}
 
 export default function TableViewer({ activeDatabase, table, initialSubTab = 3, toast }) {
   const [subTab, setSubTab] = useState(initialSubTab);
@@ -27,13 +80,13 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
   });
 
   // Settings
-  const [autoSave, setAutoSave] = useState(false); // Explicit confirmation by default
+  const [autoSave, setAutoSave] = useState(false);
 
   // Selection & In-Place Editing State
   const [selectedRowIndex, setSelectedRowIndex] = useState(0);
   const [editingCell, setEditingCell] = useState(null); // { rowKey, column }
   const [editingValue, setEditingValue] = useState('');
-  const [dirtyRows, setDirtyRows] = useState({}); // { [rowKey]: { original, modified: {}, isNew: bool } }
+  const [dirtyRows, setDirtyRows] = useState({});
   const [saving, setSaving] = useState(false);
   const [savingCellKey, setSavingCellKey] = useState(null);
   const [contextRow, setContextRow] = useState(null);
@@ -60,22 +113,28 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
   const schemaName = table?.schema || 'public';
   const tableName = table?.name || '';
 
-  // Fetch structure if missing
+  // Always fetch full structure if indices/constraints or columns are incomplete
   useEffect(() => {
-    if (!table?.columns || table.columns.length === 0) {
-      if (activeDatabase && table) {
-        api.estrutura(activeDatabase.id, schemaName, tableName)
-          .then((res) => {
-            if (res) {
-              setStructure({
-                colunas: res.colunas || [],
-                restricoes: res.restricoes || [],
-                indices: res.indices || [],
-              });
-            }
-          })
-          .catch(() => {});
-      }
+    if (!activeDatabase || !tableName) return;
+    const needsFetch =
+      !table?.columns ||
+      table.columns.length === 0 ||
+      !structure.indices ||
+      structure.indices.length === 0;
+
+    if (needsFetch) {
+      api
+        .estrutura(activeDatabase.id, schemaName, tableName)
+        .then((res) => {
+          if (res) {
+            setStructure({
+              colunas: res.colunas || table?.columns || [],
+              restricoes: res.restricoes || table?.constraints || [],
+              indices: res.indices || table?.indices || [],
+            });
+          }
+        })
+        .catch(() => {});
     } else {
       setStructure({
         colunas: table.columns || [],
@@ -85,48 +144,55 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
     }
   }, [table, activeDatabase, schemaName, tableName]);
 
-  // Fetch Live Table Data
-  const loadData = useCallback(async (p = 1) => {
-    if (!activeDatabase || !table) return;
-    setLoadingData(true);
-    try {
-      const res = await api.dados(activeDatabase.id, schemaName, tableName, p, 50, search);
-      setDataColumns(res.columns || []);
-      const mapped = (res.rows || []).map((r, i) => {
-        const item = {
-          __rowNum: (p - 1) * 50 + i + 1,
-          __rowKey: `row_${(p - 1) * 50 + i + 1}`,
-          __editingCol: null,
-        };
-        (res.columns || []).forEach((c, idx) => {
-          const v = r[idx];
-          item[c] = v === null || v === undefined ? 'NULL' : typeof v === 'object' ? JSON.stringify(v) : String(v);
+  // Fetch Live Table Data — KEEP REAL DATA TYPES (never convert all numbers to chars)
+  const loadData = useCallback(
+    async (p = 1) => {
+      if (!activeDatabase || !tableName) return;
+      setLoadingData(true);
+      try {
+        const res = await api.dados(activeDatabase.id, schemaName, tableName, p, 50, search);
+        const cols = res.columns || [];
+        setDataColumns(cols);
+
+        const mapped = (res.rows || []).map((r, i) => {
+          const item = {
+            __rowNum: (p - 1) * 50 + i + 1,
+            __rowKey: `row_${(p - 1) * 50 + i + 1}`,
+            __editingCol: null,
+          };
+          cols.forEach((c, idx) => {
+            const rawVal = Array.isArray(r) ? r[idx] : r && r[c] !== undefined ? r[c] : r?.[idx];
+            // Store RAW value: null as null, numbers as numbers, bool as bool
+            item[c] = rawVal === undefined ? null : rawVal;
+          });
+          return item;
         });
-        return item;
-      });
-      setDataRows(mapped);
-      setTotalRows(res.total_rows || 0);
-      setPage(p);
-      setDirtyRows({});
-      setEditingCell(null);
-      setSelectedRowIndex(0);
-    } catch (e) {
-      toast.current?.show({ severity: 'error', summary: 'Dados', detail: e.message, life: 5000 });
-    } finally {
-      setLoadingData(false);
-    }
-  }, [activeDatabase, table, schemaName, tableName, search, toast]);
+
+        setDataRows(mapped);
+        setTotalRows(res.total_rows || 0);
+        setPage(p);
+        setDirtyRows({});
+        setEditingCell(null);
+        setSelectedRowIndex(0);
+      } catch (e) {
+        toast.current?.show({ severity: 'error', summary: 'Dados', detail: e.message, life: 5000 });
+      } finally {
+        setLoadingData(false);
+      }
+    },
+    [activeDatabase, tableName, schemaName, search, toast]
+  );
 
   // Fetch DDL
   const loadDdl = useCallback(async () => {
-    if (!activeDatabase || !table) return;
+    if (!activeDatabase || !tableName) return;
     try {
       const res = await api.ddl(activeDatabase.id, schemaName, tableName, 'tabela', tableName);
       setDdlText(res.ddl || '');
     } catch (e) {
       setDdlText(`-- Erro ao carregar DDL: ${e.message}`);
     }
-  }, [activeDatabase, table, schemaName, tableName]);
+  }, [activeDatabase, schemaName, tableName]);
 
   useEffect(() => {
     if (subTab === 3) {
@@ -146,36 +212,56 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
 
   // Find Primary Key Columns
   const getPkColumns = useCallback(() => {
-    const pks = (structure.colunas || []).filter((c) => c.is_primary_key).map((c) => c.name);
+    const pks = (structure.colunas || [])
+      .filter((c) => c.is_primary_key)
+      .map((c) => c.name);
     if (pks.length > 0) return pks;
     if (dataColumns.includes('id')) return ['id'];
-    return []; // No unsafe UPDATE by all columns when a primary key is absent
+    return [];
   }, [structure.colunas, dataColumns]);
+
+  // Helper: find column metadata
+  const findColMeta = useCallback(
+    (colName) => {
+      return (structure.colunas || []).find(
+        (c) => c.name?.toLowerCase() === colName?.toLowerCase()
+      );
+    },
+    [structure.colunas]
+  );
 
   // --- SAVE ROW DIRECTLY ---
   const saveSingleRow = async (rowKey, modifiedFields, originalRow, isNew = false) => {
-    if (!activeDatabase || !table) return;
+    if (!activeDatabase || !tableName) return;
     const pkCols = getPkColumns();
     if (!isNew && pkCols.length === 0) {
-      toast.current?.show({ severity: 'error', summary: 'Edição indisponível', detail: 'Tabela sem chave primária ou ID identificado.', life: 5000 });
+      toast.current?.show({
+        severity: 'error',
+        summary: 'Edição indisponível',
+        detail: 'Tabela sem chave primária identificada.',
+        life: 5000,
+      });
       return false;
     }
     const keys = {};
     pkCols.forEach((pk) => {
-      keys[pk] = originalRow[pk] === 'NULL' ? null : originalRow[pk];
+      const v = originalRow[pk];
+      keys[pk] = v === 'NULL' || v === undefined ? null : v;
     });
 
     const valuesToSave = {};
+    const cols = dataColumns.length > 0 ? dataColumns : (structure.colunas || []).map((c) => c.name);
+
     if (isNew) {
-      dataColumns.forEach((c) => {
+      cols.forEach((c) => {
         const v = modifiedFields[c] !== undefined ? modifiedFields[c] : originalRow[c];
-        if (v !== 'NULL' && v !== undefined && v !== '') {
+        if (v !== 'NULL' && v !== undefined && v !== null && v !== '') {
           valuesToSave[c] = v;
         }
       });
     } else {
       Object.entries(modifiedFields).forEach(([col, val]) => {
-        valuesToSave[col] = val === 'NULL' ? null : val;
+        valuesToSave[col] = val === 'NULL' || val === undefined || val === '' ? null : val;
       });
     }
 
@@ -203,7 +289,7 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
               const updated = { ...r, ...modifiedFields, __isNew: false };
               Object.entries(res).forEach(([k, v]) => {
                 if (dataColumns.includes(k)) {
-                  updated[k] = v === null || v === undefined ? 'NULL' : String(v);
+                  updated[k] = v;
                 }
               });
               return updated;
@@ -216,7 +302,7 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
       toast.current?.show({
         severity: 'success',
         summary: 'Salvo (✓)',
-        detail: `Registro #${originalRow.__rowNum || ''} gravado com sucesso.`,
+        detail: 'Registro gravado com sucesso no banco.',
         life: 2000,
       });
       return true;
@@ -236,17 +322,23 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
   // --- IN-LINE CELL EDITING ---
   const startCellEdit = (row, column) => {
     if (getPkColumns().includes(column)) {
-      toast.current?.show({ severity: 'warn', summary: 'Chave primária protegida', detail: 'Para segurança, a chave primária não pode ser alterada na grade.', life: 3000 });
+      toast.current?.show({
+        severity: 'warn',
+        summary: 'Chave primária protegida',
+        detail: 'A chave primária não pode ser alterada na grade por segurança.',
+        life: 3000,
+      });
       return;
     }
     const rowKey = row.__rowKey;
-    const currentVal = dirtyRows[rowKey]?.modified?.[column] !== undefined
-      ? dirtyRows[rowKey].modified[column]
-      : row[column];
-    setEditingCell({ rowKey, column });
-    setEditingValue(currentVal === 'NULL' ? '' : currentVal);
+    const currentVal =
+      dirtyRows[rowKey]?.modified?.[column] !== undefined
+        ? dirtyRows[rowKey].modified[column]
+        : row[column];
 
-    // Force row update in dataRows to trigger exact row re-render
+    setEditingCell({ rowKey, column });
+    setEditingValue(currentVal === null || currentVal === undefined || currentVal === 'NULL' ? '' : String(currentVal));
+
     setDataRows((prev) =>
       prev.map((r) =>
         r.__rowKey === rowKey
@@ -268,9 +360,26 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
       return;
     }
 
+    const colMeta = findColMeta(column);
+    const { isNumeric, isBool } = getColTypeInfo(colMeta);
     const originalVal = row[column];
-    const currentInputValue = (cellInputRef.current && cellInputRef.current.value !== undefined) ? cellInputRef.current.value : editingValue;
-    const newVal = currentInputValue.trim() === '' ? 'NULL' : currentInputValue;
+    const currentInputValue =
+      cellInputRef.current && cellInputRef.current.value !== undefined
+        ? cellInputRef.current.value
+        : editingValue;
+
+    let newVal = null;
+    if (currentInputValue.trim() === '') {
+      newVal = null;
+    } else if (isNumeric) {
+      const n = Number(currentInputValue);
+      newVal = isNaN(n) ? currentInputValue : n;
+    } else if (isBool) {
+      newVal = currentInputValue.toLowerCase() === 'true';
+    } else {
+      newVal = currentInputValue;
+    }
+
     const hasChanged = newVal !== originalVal;
 
     let nextCol = null;
@@ -318,7 +427,7 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
     if (nextCol) {
       const nextVal = row[nextCol];
       setEditingCell({ rowKey, column: nextCol });
-      setEditingValue(nextVal === 'NULL' ? '' : nextVal);
+      setEditingValue(nextVal === null || nextVal === undefined ? '' : String(nextVal));
     } else {
       setEditingCell(null);
     }
@@ -326,26 +435,27 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
 
   const cancelCellEdit = () => {
     setEditingCell(null);
-    setDataRows((prev) =>
-      prev.map((r) => (r.__editingCol ? { ...r, __editingCol: null } : r))
-    );
+    setDataRows((prev) => prev.map((r) => (r.__editingCol ? { ...r, __editingCol: null } : r)));
   };
 
   // --- RECORD FORM MODAL (IBExpert Record View) ---
   const openRecordEditor = (row, mode = 'edit') => {
-    const targetRow = row || dataRows[selectedRowIndex];
+    const targetRow = row || dataRows[selectedRowIndex] || (dataRows.length > 0 ? dataRows[0] : null);
     if (!targetRow && mode === 'edit') return;
 
     setRecordModalMode(mode);
-    setRecordModalRowIndex(dataRows.findIndex((r) => r.__rowKey === targetRow?.__rowKey) || 0);
+    const rowIdx = targetRow ? dataRows.findIndex((r) => r.__rowKey === targetRow.__rowKey) : 0;
+    setRecordModalRowIndex(rowIdx >= 0 ? rowIdx : 0);
 
     const formData = {};
     const formNulls = {};
 
-    dataColumns.forEach((c) => {
+    const cols = dataColumns.length > 0 ? dataColumns : (structure.colunas || []).map((c) => c.name);
+
+    cols.forEach((c) => {
       if (mode === 'edit' && targetRow) {
         const val = targetRow[c];
-        if (val === 'NULL' || val === null || val === undefined) {
+        if (val === null || val === undefined || val === 'NULL') {
           formData[c] = '';
           formNulls[c] = true;
         } else {
@@ -353,9 +463,15 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
           formNulls[c] = false;
         }
       } else {
-        const colMeta = (structure.colunas || []).find((m) => m.name === c);
-        formData[c] = colMeta?.default_value || '';
-        formNulls[c] = colMeta?.default_value ? false : colMeta?.nullable !== false;
+        const colMeta = findColMeta(c);
+        const defVal = colMeta?.default_value;
+        if (defVal && !defVal.startsWith('nextval') && !defVal.startsWith('gen_random_uuid')) {
+          formData[c] = defVal.replace(/^'|'::.*$/g, '');
+          formNulls[c] = false;
+        } else {
+          formData[c] = '';
+          formNulls[c] = colMeta?.nullable !== false;
+        }
       }
     });
 
@@ -385,18 +501,31 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
     const keys = {};
     if (!isNew && currentRow) {
       pkCols.forEach((pk) => {
-        keys[pk] = currentRow[pk];
+        const v = currentRow[pk];
+        keys[pk] = v === 'NULL' || v === undefined ? null : v;
       });
     }
 
     const valuesToSave = {};
-    dataColumns.forEach((c) => {
+    const cols = dataColumns.length > 0 ? dataColumns : (structure.colunas || []).map((c) => c.name);
+
+    cols.forEach((c) => {
       if (recordFormNulls[c]) {
         if (!isNew) valuesToSave[c] = null;
       } else {
         const val = recordFormData[c];
-        if (val !== undefined && val !== '') {
-          valuesToSave[c] = val;
+        const colMeta = findColMeta(c);
+        const { isNumeric, isBool } = getColTypeInfo(colMeta);
+
+        if (val !== undefined && val !== null && val !== '') {
+          if (isNumeric) {
+            const num = Number(val);
+            valuesToSave[c] = isNaN(num) ? val : num;
+          } else if (isBool) {
+            valuesToSave[c] = val === true || String(val).toLowerCase() === 'true';
+          } else {
+            valuesToSave[c] = val;
+          }
         } else if (!isNew) {
           valuesToSave[c] = null;
         }
@@ -417,7 +546,7 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
       toast.current?.show({
         severity: 'success',
         summary: isNew ? 'Novo Registro Inserido' : 'Registro Atualizado',
-        detail: `Operação concluída com sucesso no banco de dados.`,
+        detail: 'Operação concluída com sucesso no banco de dados.',
         life: 3000,
       });
 
@@ -482,11 +611,21 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
   // Manual Post (Batch)
   const handlePostChanges = async () => {
     if (editingCell) {
-      toast.current?.show({ severity: 'warn', summary: 'Conclua a edição', detail: 'Pressione Enter para confirmar a célula antes de salvar.', life: 3000 });
+      toast.current?.show({
+        severity: 'warn',
+        summary: 'Conclua a edição',
+        detail: 'Pressione Enter para confirmar a célula antes de salvar.',
+        life: 3000,
+      });
       return;
     }
     if (getPkColumns().length === 0) {
-      toast.current?.show({ severity: 'error', summary: 'Edição indisponível', detail: 'Não foi identificada chave primária segura.', life: 5000 });
+      toast.current?.show({
+        severity: 'error',
+        summary: 'Edição indisponível',
+        detail: 'Não foi identificada chave primária segura.',
+        life: 5000,
+      });
       return;
     }
     const dirtyKeys = Object.keys(dirtyRows);
@@ -518,14 +657,14 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
         if (row) {
           dataColumns.forEach((c) => {
             const v = row[c];
-            if (v !== 'NULL' && v !== undefined && v !== '') {
+            if (v !== 'NULL' && v !== undefined && v !== null && v !== '') {
               valuesToSave[c] = v;
             }
           });
         }
       } else {
         Object.entries(modified).forEach(([c, val]) => {
-          valuesToSave[c] = val === 'NULL' ? null : val;
+          valuesToSave[c] = val === 'NULL' || val === undefined || val === '' ? null : val;
         });
       }
 
@@ -612,114 +751,136 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
   }, [subTab, editingCell, dirtyRows, dataRows, selectedRowIndex, recordModalOpen]);
 
   // Context Menu Items
-  const contextMenuItems = useMemo(() => [
-    {
-      label: 'Editar Célula Inline (F2)',
-      icon: 'pi pi-pencil text-yellow-400',
-      command: () => {
-        if (contextRow && contextCol) {
-          startCellEdit(contextRow, contextCol);
-        } else if (contextRow && dataColumns.length > 0) {
-          startCellEdit(contextRow, dataColumns[0]);
-        }
-      },
-    },
-    {
-      label: 'Editar Registro no Formulário...',
-      icon: 'pi pi-window-maximize text-blue-400 font-bold',
-      command: () => {
-        if (contextRow) openRecordEditor(contextRow, 'edit');
-      },
-    },
-    {
-      label: 'Novo Registro (Insert)...',
-      icon: 'pi pi-plus text-green-400',
-      command: () => handleInsertRow(),
-    },
-    {
-      label: 'Excluir Registro (Delete)',
-      icon: 'pi pi-trash text-red-400',
-      command: () => handleDeleteRow(),
-    },
-    { separator: true },
-    {
-      label: 'Definir Célula como NULL',
-      icon: 'pi pi-ban text-gray-400',
-      command: () => {
-        if (contextRow && contextCol) {
-          const rowKey = contextRow.__rowKey;
-          setDataRows((prev) =>
-            prev.map((r) => (r.__rowKey === rowKey ? { ...r, [contextCol]: 'NULL' } : r))
-          );
-          if (autoSave) {
-            saveSingleRow(rowKey, { [contextCol]: 'NULL' }, contextRow, false);
-          } else {
-            setDirtyRows((prev) => ({
-              ...prev,
-              [rowKey]: {
-                original: prev[rowKey]?.original || { ...contextRow },
-                modified: { ...(prev[rowKey]?.modified || {}), [contextCol]: 'NULL' },
-                isNew: false,
-              },
-            }));
+  const contextMenuItems = useMemo(
+    () => [
+      {
+        label: 'Editar Célula Inline (F2)',
+        icon: 'pi pi-pencil text-yellow-400',
+        command: () => {
+          if (contextRow && contextCol) {
+            startCellEdit(contextRow, contextCol);
+          } else if (contextRow && dataColumns.length > 0) {
+            startCellEdit(contextRow, dataColumns[0]);
           }
-        }
+        },
       },
-    },
-    {
-      label: 'Copiar Conteúdo da Célula',
-      icon: 'pi pi-clone text-teal-400',
-      command: () => {
-        if (contextRow && contextCol) {
-          navigator.clipboard.writeText(contextRow[contextCol] || '');
-          toast.current?.show({ severity: 'info', summary: 'Copiado', detail: 'Valor copiado', life: 1500 });
-        }
+      {
+        label: 'Editar Registro no Formulário...',
+        icon: 'pi pi-window-maximize text-blue-400 font-bold',
+        command: () => {
+          if (contextRow) openRecordEditor(contextRow, 'edit');
+        },
       },
-    },
-    {
-      label: 'Copiar Linha como SQL INSERT',
-      icon: 'pi pi-copy text-indigo-400',
-      command: () => {
-        if (!contextRow) return;
-        const cols = dataColumns.map((c) => `"${c}"`).join(', ');
-        const vals = dataColumns
-          .map((c) => (contextRow[c] === 'NULL' ? 'NULL' : `'${String(contextRow[c]).replace(/'/g, "''")}'`))
-          .join(', ');
-        const sql = `INSERT INTO "${schemaName}"."${tableName}" (${cols}) VALUES (${vals});`;
-        navigator.clipboard.writeText(sql);
-        toast.current?.show({ severity: 'info', summary: 'Copiado', detail: 'SQL INSERT copiado para área de transferência', life: 2500 });
+      {
+        label: 'Novo Registro (Insert)...',
+        icon: 'pi pi-plus text-green-400',
+        command: () => handleInsertRow(),
       },
-    },
-    { separator: true },
-    {
-      label: 'Atualizar Dados (F5)',
-      icon: 'pi pi-refresh text-blue-300',
-      command: () => loadData(page),
-    },
-  ], [contextRow, contextCol, dataColumns, autoSave, schemaName, tableName, page, loadData, toast]);
+      {
+        label: 'Excluir Registro (Delete)',
+        icon: 'pi pi-trash text-red-400',
+        command: () => handleDeleteRow(),
+      },
+      { separator: true },
+      {
+        label: 'Definir Célula como NULL',
+        icon: 'pi pi-ban text-gray-400',
+        command: () => {
+          if (contextRow && contextCol) {
+            const rowKey = contextRow.__rowKey;
+            setDataRows((prev) =>
+              prev.map((r) => (r.__rowKey === rowKey ? { ...r, [contextCol]: null } : r))
+            );
+            if (autoSave) {
+              saveSingleRow(rowKey, { [contextCol]: null }, contextRow, false);
+            } else {
+              setDirtyRows((prev) => ({
+                ...prev,
+                [rowKey]: {
+                  original: prev[rowKey]?.original || { ...contextRow },
+                  modified: { ...(prev[rowKey]?.modified || {}), [contextCol]: null },
+                  isNew: false,
+                },
+              }));
+            }
+          }
+        },
+      },
+      {
+        label: 'Copiar Conteúdo da Célula',
+        icon: 'pi pi-clone text-teal-400',
+        command: () => {
+          if (contextRow && contextCol) {
+            const val = contextRow[contextCol];
+            navigator.clipboard.writeText(val === null || val === undefined ? '' : String(val));
+            toast.current?.show({ severity: 'info', summary: 'Copiado', detail: 'Valor copiado', life: 1500 });
+          }
+        },
+      },
+      {
+        label: 'Copiar Linha como SQL INSERT',
+        icon: 'pi pi-copy text-indigo-400',
+        command: () => {
+          if (!contextRow) return;
+          const cols = dataColumns.map((c) => `"${c}"`).join(', ');
+          const vals = dataColumns
+            .map((c) => {
+              const v = contextRow[c];
+              return v === null || v === undefined ? 'NULL' : `'${String(v).replace(/'/g, "''")}'`;
+            })
+            .join(', ');
+          const sql = `INSERT INTO "${schemaName}"."${tableName}" (${cols}) VALUES (${vals});`;
+          navigator.clipboard.writeText(sql);
+          toast.current?.show({
+            severity: 'info',
+            summary: 'Copiado',
+            detail: 'SQL INSERT copiado para área de transferência',
+            life: 2500,
+          });
+        },
+      },
+      { separator: true },
+      {
+        label: 'Atualizar Dados (F5)',
+        icon: 'pi pi-refresh text-blue-300',
+        command: () => loadData(page),
+      },
+    ],
+    [contextRow, contextCol, dataColumns, autoSave, schemaName, tableName, page, loadData, toast]
+  );
 
   const hasDirty = Object.keys(dirtyRows).length > 0;
+  const targetRowForHeader = dataRows[recordModalRowIndex];
+  const pkCols = getPkColumns();
+  const pkVal = pkCols.length > 0 && targetRowForHeader ? targetRowForHeader[pkCols[0]] : null;
+  const pkLabel = pkVal !== null && pkVal !== undefined && pkVal !== 'NULL' ? ` [${pkCols[0]}: ${pkVal}]` : '';
+  const currentRecordNum = targetRowForHeader?.__rowNum || (recordModalRowIndex >= 0 ? recordModalRowIndex + 1 : 1);
+
+  const modalFormTitle =
+    recordModalMode === 'insert'
+      ? `Inserir Novo Registro — ${tableName || 'Tabela'}`
+      : `Editar Registro #${currentRecordNum}${pkLabel}`;
+
+  const colsToRenderInForm = dataColumns.length > 0 ? dataColumns : (structure.colunas || []).map((c) => c.name);
 
   return (
     <div className="ib-table-viewer">
       <ContextMenu model={contextMenuItems} ref={cm} />
       <ConfirmDialog />
 
-      {/* RECORD FORM EDITOR MODAL (IBExpert Model) */}
+      {/* RECORD FORM EDITOR MODAL (IBExpert Style) */}
       <Dialog
         header={
           <div className="flex align-items-center justify-content-between w-full pr-4">
             <div className="flex align-items-center gap-2">
               <i className="pi pi-file-edit text-blue-400 text-lg" />
-              <span className="font-bold font-mono">
-                {recordModalMode === 'insert' ? 'Inserir Novo Registro' : `Editar Registro #${(dataRows[recordModalRowIndex]?.__rowNum) || ''}`}
-              </span>
+              <span className="font-bold font-mono">{modalFormTitle}</span>
               <span className="text-muted text-xs font-mono ml-2">
-                ({schemaName}.{tableName})
+                ({schemaName || 'public'}.{tableName || 'tabela'})
               </span>
             </div>
 
-            {recordModalMode === 'edit' && (
+            {recordModalMode === 'edit' && dataRows.length > 0 && (
               <div className="flex align-items-center gap-1">
                 <Button
                   icon="pi pi-angle-double-left"
@@ -787,15 +948,13 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
         }
       >
         <div className="p-fluid grid pt-2" style={{ maxHeight: '65vh', overflowY: 'auto' }}>
-          {dataColumns.map((colName) => {
-            const colMeta = (structure.colunas || []).find((c) => c.name === colName);
-            const isPk = colMeta?.is_primary_key;
-            const dataType = colMeta?.data_type || 'varchar';
+          {colsToRenderInForm.map((colName) => {
+            const colMeta = findColMeta(colName);
+            const { dataType, isNumeric, isBool, isLongText } = getColTypeInfo(colMeta);
+            const isPk = !!colMeta?.is_primary_key;
             const isNullable = colMeta?.nullable !== false;
             const isNull = recordFormNulls[colName] || false;
-            const currentVal = recordFormData[colName] ?? '';
-
-            const isLongText = dataType === 'text' || dataType.includes('json');
+            const currentVal = recordFormData[colName];
 
             return (
               <div key={colName} className={isLongText ? 'col-12 mb-2' : 'col-6 mb-2'}>
@@ -810,7 +969,9 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
                       label={isNull ? 'NULL (Ativo)' : 'Marcar NULL'}
                       size="small"
                       text
-                      className={`py-0 px-1 text-xs ${isNull ? 'p-button-warning font-bold' : 'p-button-secondary text-muted'}`}
+                      className={`py-0 px-1 text-xs ${
+                        isNull ? 'p-button-warning font-bold' : 'p-button-secondary text-muted'
+                      }`}
                       onClick={() => {
                         setRecordFormNulls((prev) => ({ ...prev, [colName]: !prev[colName] }));
                         if (!isNull) {
@@ -825,29 +986,50 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
                   <div className="p-inputtext p-inputtext-sm font-mono text-muted italic bg-darker border-dashed border-secondary">
                     &lt;NULL&gt;
                   </div>
+                ) : isBool ? (
+                  <Dropdown
+                    value={
+                      currentVal === true || String(currentVal).toLowerCase() === 'true'
+                        ? 'true'
+                        : currentVal === false || String(currentVal).toLowerCase() === 'false'
+                        ? 'false'
+                        : ''
+                    }
+                    options={[
+                      { label: 'TRUE', value: 'true' },
+                      { label: 'FALSE', value: 'false' },
+                    ]}
+                    onChange={(e) =>
+                      setRecordFormData((prev) => ({ ...prev, [colName]: e.value === 'true' }))
+                    }
+                    className="p-inputtext-sm font-mono"
+                    placeholder="Selecione..."
+                  />
+                ) : isNumeric ? (
+                  <InputNumber
+                    value={
+                      currentVal !== '' && currentVal !== null && currentVal !== undefined && !isNaN(Number(currentVal))
+                        ? Number(currentVal)
+                        : null
+                    }
+                    onValueChange={(e) =>
+                      setRecordFormData((prev) => ({ ...prev, [colName]: e.value }))
+                    }
+                    className="p-inputtext-sm font-mono w-full"
+                    placeholder="0"
+                  />
                 ) : isLongText ? (
                   <InputTextarea
-                    value={currentVal}
+                    value={currentVal ?? ''}
                     onChange={(e) => setRecordFormData((prev) => ({ ...prev, [colName]: e.target.value }))}
                     rows={3}
                     autoResize
                     className="p-inputtext-sm font-mono w-full"
                     placeholder={`Valor de ${colName}...`}
                   />
-                ) : dataType === 'bool' || dataType === 'boolean' ? (
-                  <Dropdown
-                    value={currentVal === 'true' || currentVal === true ? 'true' : currentVal === 'false' || currentVal === false ? 'false' : ''}
-                    options={[
-                      { label: 'TRUE', value: 'true' },
-                      { label: 'FALSE', value: 'false' },
-                    ]}
-                    onChange={(e) => setRecordFormData((prev) => ({ ...prev, [colName]: e.value }))}
-                    className="p-inputtext-sm font-mono"
-                    placeholder="Selecione..."
-                  />
                 ) : (
                   <InputText
-                    value={currentVal}
+                    value={currentVal ?? ''}
                     onChange={(e) => setRecordFormData((prev) => ({ ...prev, [colName]: e.target.value }))}
                     className="p-inputtext-sm font-mono w-full"
                     placeholder={`Valor de ${colName}...`}
@@ -864,7 +1046,7 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
         <div className="flex align-items-center gap-2">
           <i className="pi pi-table text-blue-400 text-lg" />
           <span className="font-bold text-lg font-mono">
-            {schemaName}.{tableName}
+            {schemaName || 'public'}.{tableName || 'Tabela'}
           </span>
           <span className="text-muted text-xs font-mono ml-2">
             ({structure.colunas?.length || 0} fields · {structure.indices?.length || 0} indices)
@@ -1001,9 +1183,18 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
               />
               <Button
                 icon="pi pi-window-maximize"
-                label="Editar célula"
+                label="Editar no Formulário"
                 className="p-button-sm p-button-info p-button-outlined font-bold"
-                tooltip="Editar diretamente na grade, sem outra janela"
+                tooltip="Abrir formulário de registro (IBExpert Record View)"
+                tooltipOptions={{ position: 'bottom' }}
+                disabled={dataRows.length === 0}
+                onClick={() => openRecordEditor(dataRows[selectedRowIndex], 'edit')}
+              />
+              <Button
+                icon="pi pi-pencil"
+                label="Editar Célula (F2)"
+                className="p-button-sm p-button-warning p-button-outlined"
+                tooltip="Editar diretamente na grade"
                 tooltipOptions={{ position: 'bottom' }}
                 disabled={dataRows.length === 0}
                 onClick={() => {
@@ -1027,7 +1218,11 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
                 icon={autoSave ? 'pi pi-bolt' : 'pi pi-save'}
                 label={autoSave ? 'Auto-Commit: ON' : 'Auto-Commit: OFF'}
                 className={`p-button-sm ${autoSave ? 'p-button-warning font-bold' : 'p-button-secondary'}`}
-                tooltip={autoSave ? 'Auto-Commit ATIVO: Grava automaticamente no banco ao sair da célula ou pressionar Enter.' : 'Auto-Commit DESATIVADO: Modificações requerem clicar em Post (✓).'}
+                tooltip={
+                  autoSave
+                    ? 'Auto-Commit ATIVO: Grava automaticamente no banco ao sair da célula ou pressionar Enter.'
+                    : 'Auto-Commit DESATIVADO: Modificações requerem clicar em Post (✓).'
+                }
                 tooltipOptions={{ position: 'bottom' }}
                 onClick={() => {
                   setAutoSave((prev) => !prev);
@@ -1139,13 +1334,20 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
                 body={(r, { rowIndex }) => {
                   const isSelected = rowIndex === selectedRowIndex;
                   const isSavingThis = savingCellKey === r.__rowKey;
-                  const isDirty = dirtyRows[r.__rowKey]?.modified && Object.keys(dirtyRows[r.__rowKey].modified).length > 0;
+                  const isDirty =
+                    dirtyRows[r.__rowKey]?.modified &&
+                    Object.keys(dirtyRows[r.__rowKey].modified).length > 0;
 
                   let icon = null;
                   if (isSavingThis) {
                     icon = <i className="pi pi-spin pi-spinner text-yellow-400 font-bold mr-1" />;
                   } else if (isDirty) {
-                    icon = <i className="pi pi-pencil text-yellow-400 font-bold mr-1" title="Registro Modificado (pendente de Post)" />;
+                    icon = (
+                      <i
+                        className="pi pi-pencil text-yellow-400 font-bold mr-1"
+                        title="Registro Modificado (pendente de Post)"
+                      />
+                    );
                   } else if (isSelected) {
                     icon = <span className="text-blue-400 font-bold mr-1">►</span>;
                   }
@@ -1153,12 +1355,9 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
                   return (
                     <div
                       className="flex align-items-center justify-content-center cursor-pointer"
-                      title="Clique para selecionar; duplo clique para editar uma célula na grade"
+                      title="Clique para selecionar; duplo clique para abrir formulário de edição"
                       onClick={() => setSelectedRowIndex(rowIndex)}
-                      onDoubleClick={() => {
-                        const col = dataColumns.find((name) => !getPkColumns().includes(name));
-                        if (col) startCellEdit(r, col);
-                      }}
+                      onDoubleClick={() => openRecordEditor(r, 'edit')}
                     >
                       {icon}
                       <span className="text-muted text-xs">{r.__rowNum}</span>
@@ -1169,19 +1368,21 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
 
               {/* Dynamic Columns with In-Place Cell Editing */}
               {dataColumns.map((colName) => {
-                const colMeta = (structure.colunas || []).find((c) => c.name === colName);
-                const colType = colMeta?.data_type ? `(${colMeta.data_type})` : '';
+                const colMeta = findColMeta(colName);
+                const { dataType, isNumeric } = getColTypeInfo(colMeta);
+                const colType = dataType ? `(${dataType})` : '';
 
                 return (
                   <Column
                     key={colName}
                     field={colName}
                     header={
-                      <div>
+                      <div style={{ textAlign: isNumeric ? 'right' : 'left' }}>
                         <div className="font-bold">{colName}</div>
                         {colType && <div className="text-muted text-xs font-normal">{colType}</div>}
                       </div>
                     }
+                    style={{ textAlign: isNumeric ? 'right' : 'left' }}
                     sortable
                     body={(row, { rowIndex }) => {
                       const isEditing = row.__editingCol === colName;
@@ -1196,7 +1397,8 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
                             onClick={(e) => e.stopPropagation()}
                             onMouseDown={(e) => e.stopPropagation()}
                           >
-                            <input type="text"
+                            <input
+                              type={isNumeric ? 'number' : 'text'}
                               ref={cellInputRef}
                               value={editingValue}
                               onChange={(e) => setEditingValue(e.target.value)}
@@ -1220,6 +1422,7 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
                                 border: '2px solid #00aaff',
                                 padding: '3px 6px',
                                 fontSize: '12px',
+                                textAlign: isNumeric ? 'right' : 'left',
                                 outline: 'none',
                               }}
                             />
@@ -1227,7 +1430,7 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
                         );
                       }
 
-                      const isNull = cellVal === 'NULL';
+                      const isNull = cellVal === null || cellVal === undefined || cellVal === 'NULL';
                       const cellClass = isCellDirty
                         ? 'ib-cell-dirty'
                         : isNull
@@ -1237,11 +1440,16 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
                       return (
                         <div
                           className={`ib-cell-view cursor-pointer py-1 px-1 border-round ${cellClass}`}
-                          title="Clique para editar diretamente · Enter confirma · Esc cancela"
+                          title="Clique para editar · Duplo clique para formulário · Enter confirma"
                           onClick={(e) => {
                             e.stopPropagation();
                             setSelectedRowIndex(rowIndex);
                             startCellEdit(row, colName);
+                          }}
+                          onDoubleClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedRowIndex(rowIndex);
+                            openRecordEditor(row, 'edit');
                           }}
                           onContextMenu={() => {
                             setSelectedRowIndex(rowIndex);
@@ -1250,11 +1458,12 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
                           }}
                           style={{
                             minHeight: '22px',
+                            textAlign: isNumeric ? 'right' : 'left',
                             background: isCellDirty ? 'rgba(234, 179, 8, 0.15)' : 'transparent',
                             border: isCellDirty ? '1px dashed #eab308' : '1px solid transparent',
                           }}
                         >
-                          {cellVal}
+                          {formatCell(cellVal, colMeta)}
                         </div>
                       );
                     }}
@@ -1267,14 +1476,16 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
           {/* Grid Footer / Status Bar */}
           <div className="flex justify-content-between align-items-center mt-2 px-2 py-1 text-xs font-mono text-muted border-top-1 border-secondary">
             <div className="flex gap-3">
-              <span>Linha selecionada: {dataRows.length > 0 ? selectedRowIndex + 1 : 0} de {dataRows.length}</span>
+              <span>
+                Linha selecionada: {dataRows.length > 0 ? selectedRowIndex + 1 : 0} de {dataRows.length}
+              </span>
               <span>Total no banco: {totalRows}</span>
               <span>Modo: {autoSave ? 'Auto-Commit Ativo' : 'Gravação Manual'}</span>
             </div>
             <div className="flex gap-2">
-              <span>Clique em qualquer célula para editar inline</span>
+              <span>Clique na célula para edição inline · Duplo clique abre formulário</span>
               <span>·</span>
-              <span>Enter conclui a célula · Post grava no banco · Esc cancela</span>
+              <span>Enter conclui · Post grava no banco</span>
             </div>
           </div>
         </TabPanel>
@@ -1282,7 +1493,10 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
         {/* SubTab 5: DDL Script */}
         <TabPanel header="DDL" leftIcon="pi pi-code">
           <div className="p-2">
-            <pre className="ib-ddl-output font-mono p-3 bg-darker border-1 border-secondary border-round overflow-auto" style={{ maxHeight: 'calc(100vh - 280px)' }}>
+            <pre
+              className="ib-ddl-output font-mono p-3 bg-darker border-1 border-secondary border-round overflow-auto"
+              style={{ maxHeight: 'calc(100vh - 280px)' }}
+            >
               {ddlText}
             </pre>
           </div>

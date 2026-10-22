@@ -217,7 +217,8 @@ export default function App() {
 
   // Open Table Tab
   const handleOpenTable = (table, mode = 'data') => {
-    const tabId = `table-${table.name}`;
+    const tableName = table?.name || 'Tabela';
+    const tabId = `table-${tableName}`;
     const initialSubTab = mode === 'structure' ? 0 : mode === 'ddl' ? 4 : 3;
     const existingIdx = tabs.findIndex((t) => t.id === tabId);
     if (existingIdx >= 0) {
@@ -230,7 +231,7 @@ export default function App() {
         ...prev,
         {
           id: tabId,
-          title: table.name,
+          title: tableName,
           type: 'table',
           table,
           initialSubTab,
@@ -431,7 +432,7 @@ export default function App() {
                       : 'pi pi-chart-line text-yellow-400 mr-1 text-xs'
                   }
                 />
-                <span>{t.title}</span>
+                <span>{t.title && t.title !== 'NULL' ? t.title : (t.type === 'sql' ? 'SQL Editor' : t.table?.name || 'Tabela')}</span>
                 {tabs.length > 1 && (
                   <i
                     className="pi pi-times tab-close-btn ml-2"

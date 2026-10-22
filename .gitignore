@@ -17,3 +17,6 @@ src/main/resources/static/dist/
 # Ambiente / segredos
 .env
 *.local
+dist/
+*.py
+*.sh

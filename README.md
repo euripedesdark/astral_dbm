@@ -1,4 +1,4 @@
-# astral_dbm — Astral Database Manager
+# Astral DBM — Astral Database Manager
 
 Gerenciador de bancos web, no estilo **IBConsole (Interbase)**: árvore de objetos
 à esquerda, grade de dados, estrutura e console SQL. Produto **separado** do

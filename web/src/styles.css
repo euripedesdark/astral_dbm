@@ -1035,3 +1035,58 @@ html, body, #root {
 .ib-wizard-content{background:#243144!important}
 @media(max-width:1250px){.ib-workbench-nav{width:245px!important;min-width:220px!important}.astral-monitor-dock{width:285px;min-width:260px}.ib-ribbon-btn{min-width:62px!important}}
 @media(max-width:950px){.astral-monitor-dock{position:absolute;right:0;top:0;bottom:0;z-index:60;width:300px;box-shadow:-10px 0 28px #0009}.ib-workbench-nav{min-width:200px!important;width:215px!important}}
+
+/* Type-safe Badges and Cells for Astral DBM */
+.ib-null-badge {
+  display: inline-block;
+  font-style: italic;
+  font-family: Consolas, monospace;
+  font-size: 11px;
+  color: #94a3b8;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 1px 6px;
+  border-radius: 3px;
+  border: 1px dashed rgba(255, 255, 255, 0.2);
+  user-select: none;
+}
+.ib-bool-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-family: Consolas, monospace;
+}
+.ib-bool-true {
+  background: rgba(34, 197, 94, 0.2);
+  color: #4ade80;
+  border: 1px solid rgba(74, 222, 128, 0.4);
+}
+.ib-bool-false {
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+  border: 1px solid rgba(248, 113, 113, 0.4);
+}
+.ib-numeric-cell {
+  font-family: Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  color: #67e8f9;
+  display: inline-block;
+  width: 100%;
+  text-align: right;
+}
+.ib-date-cell {
+  color: #fdba74;
+  font-family: Consolas, monospace;
+  font-size: 11px;
+}
+.ib-json-cell {
+  color: #c084fc;
+  font-family: Consolas, monospace;
+  font-size: 11px;
+}
+.ib-text-cell {
+  color: #eaf2fa;
+}

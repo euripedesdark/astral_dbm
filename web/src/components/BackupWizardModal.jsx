@@ -75,7 +75,7 @@ export default function BackupWizardModal({ visible, onHide, activeDatabase, toa
             <div className="step-pane">
               <h3>Selecionar Banco de Dados</h3>
               <label>Banco Alvo:</label>
-              <InputText value={activeDatabase?.nome || 'Nenhum banco selecionado'} disabled className="w-full" />
+              <InputText value={activeDatabase?.nome || activeDatabase?.name || activeDatabase?.database || 'Nenhum banco selecionado'} disabled className="w-full" />
             </div>
           )}
 
@@ -119,7 +119,7 @@ export default function BackupWizardModal({ visible, onHide, activeDatabase, toa
             <div className="step-pane">
               <h3>Resumo do Backup</h3>
               <ul className="text-sm">
-                <li><strong>Banco:</strong> {activeDatabase?.database}</li>
+                <li><strong>Banco:</strong> {activeDatabase?.database || activeDatabase?.nome || activeDatabase?.name || 'astral-saas'}</li>
                 <li><strong>Tipo:</strong> {backupType === 'full' ? 'Full Backup' : 'Incremental'}</li>
                 <li><strong>Arquivo:</strong> {backupFile}</li>
                 <li><strong>Somente Metadados:</strong> {metadataOnly ? 'Sim' : 'Não'}</li>

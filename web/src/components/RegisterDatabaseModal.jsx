@@ -9,7 +9,7 @@ export default function RegisterDatabaseModal({ visible, onHide, onSaved, toast 
   const [nome, setNome] = useState('Local_DB.ib');
   const [host, setHost] = useState('127.0.0.1');
   const [port, setPort] = useState(5432);
-  const [database, setDatabase] = useState('brasil-saas');
+  const [database, setDatabase] = useState('astral-saas');
   const [username, setUsername] = useState('dbm_app');
   const [password, setPassword] = useState('dbm_app');
   const [readonly, setReadonly] = useState(false);
@@ -84,7 +84,7 @@ export default function RegisterDatabaseModal({ visible, onHide, onSaved, toast 
 
         <div className="ib-field">
           <label>Database Name / Path (.ib / .gdb)</label>
-          <InputText value={database} onChange={(e) => setDatabase(e.target.value)} placeholder="ex: brasil-saas" />
+          <InputText value={database} onChange={(e) => setDatabase(e.target.value)} placeholder="ex: astral-saas" />
         </div>
 
         <div className="ib-field-row">

@@ -15,8 +15,8 @@ import api from '../api.js';
 // 1. RESTORE WIZARD MODAL
 // ============================================================================
 export function RestoreWizardModal({ visible, onHide, activeDatabase, toast }) {
-  const [backupFile, setBackupFile] = useState('/var/backups/astral/brasil-saas-backup.gbk');
-  const [targetDb, setTargetDb] = useState(activeDatabase?.database || 'brasil-saas_restored');
+  const [backupFile, setBackupFile] = useState('/var/backups/astral/astral-saas-backup.gbk');
+  const [targetDb, setTargetDb] = useState(activeDatabase?.database || activeDatabase?.nome || 'astral-saas_restored');
   const [pageSize, setPageSize] = useState(8192);
   const [replaceDb, setReplaceDb] = useState(true);
   const [deactivateIndexes, setDeactivateIndexes] = useState(false);
@@ -265,7 +265,7 @@ export function DatabasePropertiesModal({ visible, onHide, activeDatabase, catal
 
   return (
     <Dialog
-      header={<span><i className="pi pi-sliders-h text-primary mr-2" />Database Properties</span>}
+      header={<span><i className="pi pi-sliders-h text-primary mr-2" />Database Properties — {activeDatabase?.database || activeDatabase?.nome || activeDatabase?.name || "astral-saas"}</span>}
       visible={visible}
       style={{ width: '600px' }}
       modal
@@ -280,7 +280,7 @@ export function DatabasePropertiesModal({ visible, onHide, activeDatabase, catal
       <div className="flex flex-column gap-3 font-mono text-sm pt-2">
         <div className="grid">
           <div className="col-5 text-gray-400 font-bold">Database Name:</div>
-          <div className="col-7 text-white">{activeDatabase?.database || 'brasil-saas'}</div>
+          <div className="col-7 text-white">{activeDatabase?.database || activeDatabase?.nome || activeDatabase?.name || "astral-saas"}</div>
 
           <div className="col-5 text-gray-400 font-bold">ODS Version:</div>
           <div className="col-7 text-teal-400">ODS 13.0 (InterBase 2020 Architecture)</div>
@@ -292,10 +292,10 @@ export function DatabasePropertiesModal({ visible, onHide, activeDatabase, catal
           <div className="col-7 text-white">8192 bytes</div>
 
           <div className="col-5 text-gray-400 font-bold">Character Set / Encoding:</div>
-          <div className="col-7 text-white">{catalog?.charset || 'UTF8'}</div>
+          <div className="col-7 text-white">{catalog?.active_charset || catalog?.charset || "UTF8"}</div>
 
           <div className="col-5 text-gray-400 font-bold">Server Version:</div>
-          <div className="col-7 text-xs text-gray-300">{catalog?.server_version || 'Rust Tokio/Postgres'}</div>
+          <div className="col-7 text-xs text-gray-300">{catalog?.server_version || activeDatabase?.server_version || "PostgreSQL / Astral DBM Engine"}</div>
         </div>
 
         <div className="border-top-1 border-gray-700 pt-3 flex flex-column gap-3">
@@ -593,7 +593,7 @@ export function ServerLogModal({ visible, onHide, activeDatabase, toast }) {
 // 9. JOURNALING / SHADOWING MODAL
 // ============================================================================
 export function JournalingModal({ visible, onHide, activeDatabase, toast }) {
-  const [shadowFile, setShadowFile] = useState('/mnt/shadow/brasil-saas.shd');
+  const [shadowFile, setShadowFile] = useState('/mnt/shadow/astral-saas.shd');
   const [manualMode, setManualMode] = useState(false);
 
   const handleApply = () => {
@@ -931,7 +931,7 @@ export function SetGeneratorModal({ visible, onHide, generator, activeDatabase, 
 
   return (
     <Dialog
-      header={<span><i className="pi pi-sort-numeric-up text-green-400 mr-2" />Set Generator Value (GEN_ID)</span>}
+      header={<span><i className="pi pi-sort-numeric-up text-green-400 mr-2" />Set Generator Value (GEN_ID) — {generator?.name || "Generator"}</span>}
       visible={visible}
       style={{ width: '420px' }}
       modal
@@ -946,7 +946,7 @@ export function SetGeneratorModal({ visible, onHide, generator, activeDatabase, 
       <div className="flex flex-column gap-3 pt-2">
         <div>
           <label className="text-xs font-bold text-gray-400 block mb-1">Generator / Sequence:</label>
-          <div className="font-mono text-sm text-green-300">{generator?.name}</div>
+          <div className="font-mono text-sm text-green-300">{generator?.name || "Gerador não especificado"}</div>
         </div>
         <div>
           <label className="text-xs font-bold text-gray-400 block mb-1">New Value (Current Seed):</label>

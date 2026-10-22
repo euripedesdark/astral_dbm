@@ -70,7 +70,7 @@ export default function DatabaseNavigator({
 
       const dbNode = {
         key: `db-${c.id}`,
-        label: `${c.nome} ${isConn ? '(Connected)' : '(Disconnected)'}`,
+        label: `${c.nome || c.name || c.database || 'Banco de Dados'} ${isConn ? '(Connected)' : '(Disconnected)'}`,
         icon: isConn ? 'pi pi-database text-green-400' : 'pi pi-database text-500',
         data: { type: 'database', connection: c },
         children: [],

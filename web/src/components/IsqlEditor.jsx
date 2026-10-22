@@ -9,151 +9,130 @@ import { InputText } from 'primereact/inputtext';
 import { Dropdown } from 'primereact/dropdown';
 import api from '../api.js';
 
-export default function IsqlEditor({ activeDatabase, isConnected, initialSql, onConnect, onQueryDone, toast }) {
-  const [sql, setSql] = useState(
-    initialSql ||
-    '/* Astral DBM - InterBase ISQL Query */\nSELECT table_name, table_schema \nFROM information_schema.tables \nWHERE table_schema NOT IN (\'pg_catalog\', \'information_schema\');'
-  );
-  const [running, setRunning] = useState(false);
+function formatCell(val) {
+  if (val === null || val === undefined || val === 'NULL') {
+    return <span className="ib-null-badge">&lt;NULL&gt;</span>;
+  }
+  if (typeof val === 'boolean') {
+    return (
+      <span className={`ib-bool-badge ${val ? 'ib-bool-true' : 'ib-bool-false'}`}>
+        {val ? 'TRUE' : 'FALSE'}
+      </span>
+    );
+  }
+  if (typeof val === 'number') {
+    return <span className="ib-numeric-cell font-mono">{val.toLocaleString('pt-BR')}</span>;
+  }
+  if (typeof val === 'object') {
+    return <span className="ib-json-cell font-mono">{JSON.stringify(val)}</span>;
+  }
+  return <span>{String(val)}</span>;
+}
+
+export default function IsqlEditor({
+  activeDatabase,
+  initialQuery = 'SELECT now() AS data_hora, version() AS versao;',
+  onConnect,
+  onQueryDone,
+  toast,
+}) {
+  const [sql, setSql] = useState(initialQuery);
+  const [executing, setExecuting] = useState(false);
   const [result, setResult] = useState(null);
   const [activeBottomTab, setActiveBottomTab] = useState(0);
-  const [executionLog, setExecutionLog] = useState([]);
-  const [txStatus, setTxStatus] = useState('AUTOCOMMIT');
 
-  // Modals for Export and Import
+  // Transaction state
+  const [manualTx, setManualTx] = useState(false);
+  const [inTx, setInTx] = useState(false);
+  const [explainPlan, setExplainPlan] = useState(false);
+
+  // History & Snippets State
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [history, setHistory] = useState([
+    'SELECT now() AS data_hora, version() AS versao;',
+    "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public';",
+  ]);
+
+  // Export Modal State
   const [exportModalOpen, setExportModalOpen] = useState(false);
   const [exportFormat, setExportFormat] = useState('csv');
+
+  // Import Assistant Modal
   const [importModalOpen, setImportModalOpen] = useState(false);
-  const [importText, setImportText] = useState('');
-  const [importTable, setImportTable] = useState('');
+  const [importTargetTable, setImportTargetTable] = useState('');
+  const [importFile, setImportFile] = useState('');
 
-  // Code Insight / Suggestions
-  const [suggestions, setSuggestions] = useState([]);
-  const [showSuggestions, setShowSuggestions] = useState(false);
+  const editorRef = useRef(null);
 
-  // Common InterBase keywords for auto-complete
-  const sqlKeywords = [
-    'SELECT', 'FROM', 'WHERE', 'INSERT INTO', 'UPDATE', 'DELETE FROM', 'JOIN', 'LEFT JOIN',
-    'GROUP BY', 'ORDER BY', 'HAVING', 'CREATE TABLE', 'DROP TABLE', 'ALTER TABLE',
-    'CREATE PROCEDURE', 'CREATE TRIGGER', 'CREATE DOMAIN', 'CREATE SEQUENCE', 'GEN_ID',
-    'COMMIT', 'ROLLBACK', 'SET TRANSACTION'
-  ];
+  const lineCount = useMemo(() => {
+    return Math.max(1, (sql.match(/\n/g) || []).length + 1);
+  }, [sql]);
 
-  const handleSqlChange = (val) => {
-    setSql(val);
-    const words = val.split(/[\s,()]+/);
-    const lastWord = words[words.length - 1]?.toUpperCase();
-    if (lastWord && lastWord.length >= 2) {
-      const matches = sqlKeywords.filter((k) => k.startsWith(lastWord) && k !== lastWord);
-      setSuggestions(matches.slice(0, 5));
-      setShowSuggestions(matches.length > 0);
-    } else {
-      setShowSuggestions(false);
-    }
-  };
+  const lineNumbers = useMemo(() => {
+    return Array.from({ length: lineCount }, (_, i) => i + 1);
+  }, [lineCount]);
 
-  const applySuggestion = (word) => {
-    const parts = sql.trimEnd().split(/\s+/);
-    parts.pop();
-    parts.push(word);
-    setSql(parts.join(' ') + ' ');
-    setShowSuggestions(false);
-  };
-
-  // Run SQL
-  const executeQuery = async (explain = false) => {
+  const executeQuery = async () => {
     if (!activeDatabase) {
       toast.current?.show({
         severity: 'warn',
-        summary: 'Nenhum Banco Selecionado',
-        detail: 'Registre ou selecione um banco no Navigator primeiro.',
-        life: 4000,
+        summary: 'Sem Conexão',
+        detail: 'Conecte-se a uma base antes de executar instruções SQL.',
+        life: 3000,
       });
       return;
     }
 
-    if (!isConnected && onConnect) {
-      try {
-        await onConnect(activeDatabase.id);
-      } catch (_) {}
-    }
+    const trimmed = sql.trim();
+    if (!trimmed) return;
 
-    setRunning(true);
+    setExecuting(true);
     const start = performance.now();
+
     try {
-      const res = await api.isql(activeDatabase.id, sql, explain, false);
+      const res = await api.isql(activeDatabase.id, trimmed, explainPlan, manualTx);
       const elapsed = Math.round(performance.now() - start);
 
-      setResult(res);
-      setTxStatus(res.tx_status || 'AUTOCOMMIT');
-
-      if (explain && res.plan) {
-        setActiveBottomTab(1); // Explain Plan
-      } else {
-        setActiveBottomTab(0); // Results
-      }
-
-      setExecutionLog((prev) => [
-        {
-          id: Date.now(),
-          time: new Date().toLocaleTimeString(),
-          fullQuery: sql,
-          query: sql.slice(0, 80) + (sql.length > 80 ? '...' : ''),
-          elapsed: res.elapsed_ms || elapsed,
-          rows: res.rows_affected || 0,
-          status: 'SUCCESS',
-        },
-        ...prev,
-      ]);
-
-      if (onQueryDone) {
-        onQueryDone(res.elapsed_ms || elapsed, res.rows_affected || 0);
-      }
-    } catch (e) {
-      toast.current?.show({
-        severity: 'error',
-        summary: 'Erro SQL',
-        detail: e.message,
-        life: 7000,
+      setResult({
+        ...res,
+        executionTimeMs: elapsed,
       });
 
-      setExecutionLog((prev) => [
-        {
-          id: Date.now(),
-          time: new Date().toLocaleTimeString(),
-          fullQuery: sql,
-          query: sql.slice(0, 80),
-          elapsed: 0,
-          rows: 0,
-          status: 'ERROR: ' + e.message,
-        },
-        ...prev,
-      ]);
-    } finally {
-      setRunning(false);
-    }
-  };
+      if (!history.includes(trimmed)) {
+        setHistory((prev) => [trimmed, ...prev.slice(0, 20)]);
+      }
 
-  // Format SQL Code
-  const handleFormatSql = () => {
-    let formatted = sql;
-    sqlKeywords.forEach((kw) => {
-      const regex = new RegExp(`\\b${kw}\\b`, 'gi');
-      formatted = formatted.replace(regex, kw);
-    });
-    setSql(formatted);
-    toast.current?.show({ severity: 'info', summary: 'SQL Formatado', detail: 'Palavras-chave padronizadas.', life: 2000 });
-  };
+      if (manualTx) {
+        setInTx(true);
+      }
 
-  // Transactions
-  const handleStartTx = async () => {
-    if (!activeDatabase) return;
-    try {
-      await api.isql(activeDatabase.id, 'BEGIN;', false, true);
-      setTxStatus('IN TRANSACTION');
-      toast.current?.show({ severity: 'info', summary: 'Transação Iniciada', detail: 'Transação manual explícita aberta.', life: 2500 });
+      if (res.columns && res.columns.length > 0) {
+        setActiveBottomTab(0);
+      } else if (res.plan) {
+        setActiveBottomTab(1);
+      } else {
+        setActiveBottomTab(2);
+      }
+
+      if (onQueryDone) {
+        onQueryDone(elapsed, res.total_rows || res.rows?.length || 0);
+      }
     } catch (e) {
-      toast.current?.show({ severity: 'error', summary: 'Erro', detail: e.message, life: 5000 });
+      setResult({
+        columns: [],
+        rows: [],
+        message: `ERRO SQL: ${e.message}`,
+        executionTimeMs: Math.round(performance.now() - start),
+      });
+      setActiveBottomTab(2);
+      toast.current?.show({
+        severity: 'error',
+        summary: 'Erro de Execução SQL',
+        detail: e.message,
+        life: 6000,
+      });
+    } finally {
+      setExecuting(false);
     }
   };
 
@@ -161,10 +140,10 @@ export default function IsqlEditor({ activeDatabase, isConnected, initialSql, on
     if (!activeDatabase) return;
     try {
       await api.commit(activeDatabase.id);
-      setTxStatus('COMMITTED (AUTOCOMMIT)');
-      toast.current?.show({ severity: 'success', summary: 'Transação', detail: 'COMMIT executado.', life: 2500 });
+      setInTx(false);
+      toast.current?.show({ severity: 'success', summary: 'COMMIT', detail: 'Transação confirmada no motor.', life: 2000 });
     } catch (e) {
-      toast.current?.show({ severity: 'error', summary: 'Erro no Commit', detail: e.message, life: 6000 });
+      toast.current?.show({ severity: 'error', summary: 'Erro COMMIT', detail: e.message, life: 5000 });
     }
   };
 
@@ -172,207 +151,211 @@ export default function IsqlEditor({ activeDatabase, isConnected, initialSql, on
     if (!activeDatabase) return;
     try {
       await api.rollback(activeDatabase.id);
-      setTxStatus('ROLLED_BACK (AUTOCOMMIT)');
-      toast.current?.show({ severity: 'info', summary: 'Transação', detail: 'ROLLBACK executado.', life: 2500 });
+      setInTx(false);
+      toast.current?.show({ severity: 'warn', summary: 'ROLLBACK', detail: 'Transação desfeita.', life: 2000 });
     } catch (e) {
-      toast.current?.show({ severity: 'error', summary: 'Erro no Rollback', detail: e.message, life: 6000 });
+      toast.current?.show({ severity: 'error', summary: 'Erro ROLLBACK', detail: e.message, life: 5000 });
     }
   };
 
-  // Export Data Logic
   const handleExportData = () => {
-    if (!result?.columns || !result?.rows || result.rows.length === 0) {
-      toast.current?.show({ severity: 'warn', summary: 'Export Data', detail: 'Nenhum dado na grelha para exportar.', life: 3000 });
+    if (!result?.rows || result.rows.length === 0) {
+      toast.current?.show({ severity: 'warn', summary: 'Export', detail: 'Sem dados para exportar.', life: 2500 });
       return;
     }
 
     let content = '';
-    let mime = 'text/plain';
-    let ext = 'txt';
+    const ext = exportFormat;
 
     if (exportFormat === 'csv') {
-      mime = 'text/csv;charset=utf-8;';
-      ext = 'csv';
-      content = result.columns.map((c) => `"${c}"`).join(';') + '\n';
+      content += (result.columns || []).map((c) => `"${c}"`).join(',') + '\n';
       result.rows.forEach((r) => {
-        content += r.map((val) => `"${val === null ? '' : String(val).replace(/"/g, '""')}"`).join(';') + '\n';
+        content += r.map((v) => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',') + '\n';
       });
-    } else if (exportFormat === 'excel') {
-      mime = 'application/vnd.ms-excel;charset=utf-8;';
-      ext = 'csv';
-      content = '\uFEFF' + result.columns.map((c) => `"${c}"`).join('\t') + '\n';
-      result.rows.forEach((r) => {
-        content += r.map((val) => `"${val === null ? '' : String(val).replace(/"/g, '""')}"`).join('\t') + '\n';
-      });
-    } else if (exportFormat === 'xml') {
-      mime = 'application/xml;charset=utf-8;';
-      ext = 'xml';
-      content = '<?xml version="1.0" encoding="UTF-8"?>\n<dataset>\n';
-      result.rows.forEach((r) => {
-        content += '  <record>\n';
-        result.columns.forEach((col, idx) => {
-          content += `    <${col}>${r[idx] === null ? '' : String(r[idx])}</${col}>\n`;
+    } else if (exportFormat === 'json') {
+      const records = result.rows.map((r) => {
+        const item = {};
+        result.columns.forEach((c, idx) => {
+          item[c] = r[idx];
         });
-        content += '  </record>\n';
+        return item;
       });
-      content += '</dataset>\n';
+      content = JSON.stringify(records, null, 2);
     } else if (exportFormat === 'sql') {
-      mime = 'text/sql;charset=utf-8;';
-      ext = 'sql';
-      const tbl = 'exported_table';
+      const tbl = 'resultado_export';
       result.rows.forEach((r) => {
-        const vals = r.map((val) => (val === null ? 'NULL' : `'${String(val).replace(/'/g, "''")}'`)).join(', ');
-        content += `INSERT INTO ${tbl} (${result.columns.join(', ')}) VALUES (${vals});\n`;
+        const vals = r.map((v) => (v === null || v === undefined ? 'NULL' : `'${String(v).replace(/'/g, "''")}'`)).join(', ');
+        content += `INSERT INTO ${tbl} (${(result.columns || []).join(', ')}) VALUES (${vals});\n`;
       });
     }
 
-    const blob = new Blob([content], { type: mime });
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `query_export_${Date.now()}.${ext}`;
-    a.click();
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `query_result_${Date.now()}.${ext}`;
+    link.click();
     URL.revokeObjectURL(url);
     setExportModalOpen(false);
     toast.current?.show({ severity: 'success', summary: 'Export Concluído', detail: `Arquivo .${ext} baixado.`, life: 3000 });
   };
 
-  // Convert row values for PrimeReact DataTable
+  // Convert row values for PrimeReact DataTable — PRESERVE RAW VALUES!
   const gridData = (result?.rows || []).map((row, rowIdx) => {
     const obj = { __rowNum: rowIdx + 1 };
     (result?.columns || []).forEach((col, colIdx) => {
-      const val = row[colIdx];
-      obj[col] = val === null || val === undefined ? 'NULL' : typeof val === 'object' ? JSON.stringify(val) : String(val);
+      const val = Array.isArray(row) ? row[colIdx] : (row && row[col] !== undefined ? row[col] : row?.[colIdx]);
+      obj[col] = val === undefined ? null : val;
     });
     return obj;
   });
 
   return (
-    <div className="ib-sql-editor">
-      {/* Secondary Action Toolbar */}
-      <div className="ib-sql-toolbar flex justify-content-between align-items-center">
-        <div className="flex gap-2 align-items-center flex-wrap">
+    <div className="ib-isql-container">
+      {/* 1. ISQL Ribbon / Toolbar */}
+      <div className="ib-sql-toolbar flex align-items-center justify-content-between">
+        <div className="flex align-items-center gap-1">
           <Button
-            label="Run SQL (F9)"
             icon="pi pi-play"
-            className="p-button-sm p-button-success"
-            loading={running}
-            onClick={() => executeQuery(false)}
-            title="Execute Statement (F9 / Ctrl+Enter)"
+            label="Execute (F9)"
+            className="p-button-success p-button-sm font-bold"
+            onClick={executeQuery}
+            loading={executing}
+            tooltip="Executar instrução SQL completa (F9 / Ctrl+Enter)"
+            tooltipOptions={{ position: 'bottom' }}
           />
           <Button
-            label="Format"
-            icon="pi pi-align-left"
-            className="p-button-sm p-button-outlined"
-            onClick={handleFormatSql}
-            title="Format SQL Keywords"
-          />
-          <Button
-            label="Explain Plan"
             icon="pi pi-compass"
-            className="p-button-sm p-button-outlined"
-            onClick={() => executeQuery(true)}
-            title="Inspect Query Execution Plan"
-          />
-          <div className="ib-toolbar-separator" />
-          {/* Explicit Transactions */}
-          <Button
-            label="Start TX"
-            icon="pi pi-lock"
-            className="p-button-sm p-button-outlined p-button-secondary"
-            onClick={handleStartTx}
-            title="Start Explicit Transaction"
+            label="Explain Plan"
+            className={`p-button-sm ${explainPlan ? 'p-button-info' : 'p-button-secondary p-button-outlined'}`}
+            onClick={() => {
+              setExplainPlan((prev) => !prev);
+              toast.current?.show({ severity: 'info', summary: 'Plano', detail: !explainPlan ? 'Explain Plan ATIVADO.' : 'Explain Plan desativado.', life: 1500 });
+            }}
+            tooltip="Gerar plano de execução do otimizador"
+            tooltipOptions={{ position: 'bottom' }}
           />
           <Button
-            label="Commit"
-            icon="pi pi-check"
-            className="p-button-sm p-button-outlined p-button-info"
-            onClick={handleCommit}
-            title="Commit Current Transaction"
+            icon="pi pi-trash"
+            className="p-button-secondary p-button-outlined p-button-sm"
+            onClick={() => setSql('')}
+            tooltip="Limpar editor de comandos"
+            tooltipOptions={{ position: 'bottom' }}
           />
+
+          <div className="border-left-1 border-secondary mx-2" style={{ height: '24px' }} />
+
+          {/* Transaction Controls */}
           <Button
-            label="Rollback"
-            icon="pi pi-undo"
-            className="p-button-sm p-button-outlined p-button-danger"
-            onClick={handleRollback}
-            title="Rollback Changes"
+            icon="pi pi-sync"
+            label={manualTx ? 'Manual TX: ON' : 'Auto-Commit'}
+            className={`p-button-sm ${manualTx ? 'p-button-warning' : 'p-button-secondary p-button-outlined'}`}
+            onClick={() => {
+              setManualTx((prev) => !prev);
+              toast.current?.show({
+                severity: 'info',
+                summary: 'Controle Transacional',
+                detail: !manualTx ? 'Transação manual explícita (SET TRANSACTION) ativa.' : 'Auto-Commit ativo.',
+                life: 2500,
+              });
+            }}
+            tooltip="Alternar entre modo Auto-Commit e Transação Explícita (InterBase SET TRANSACTION)"
+            tooltipOptions={{ position: 'bottom' }}
           />
-          <div className="ib-toolbar-separator" />
-          {/* Export & Import Data */}
+
+          {manualTx && (
+            <>
+              <Button
+                icon="pi pi-check"
+                label="Commit"
+                className="p-button-success p-button-sm"
+                disabled={!inTx}
+                onClick={handleCommit}
+                tooltip="Confirmar transação ativa (COMMIT)"
+                tooltipOptions={{ position: 'bottom' }}
+              />
+              <Button
+                icon="pi pi-times"
+                label="Rollback"
+                className="p-button-danger p-button-sm"
+                disabled={!inTx}
+                onClick={handleRollback}
+                tooltip="Desfazer transação ativa (ROLLBACK)"
+                tooltipOptions={{ position: 'bottom' }}
+              />
+            </>
+          )}
+
+          <div className="border-left-1 border-secondary mx-2" style={{ height: '24px' }} />
+
+          {/* Data Export / Import Buttons */}
           <Button
-            label="Export Data"
             icon="pi pi-download"
-            className="p-button-sm p-button-outlined"
+            label="Export Data"
+            className="p-button-secondary p-button-outlined p-button-sm"
             onClick={() => setExportModalOpen(true)}
             disabled={!result?.rows || result.rows.length === 0}
-            title="Export Query Results (CSV, Excel, XML, SQL)"
+            tooltip="Exportar grade de resultados para CSV, JSON ou SQL INSERT"
+            tooltipOptions={{ position: 'bottom' }}
           />
           <Button
-            label="Import Data"
             icon="pi pi-upload"
-            className="p-button-sm p-button-outlined"
+            label="Import Assistant"
+            className="p-button-secondary p-button-outlined p-button-sm"
             onClick={() => setImportModalOpen(true)}
-            title="Import Data from CSV / Text"
+            tooltip="Assistente de importação de dados externos"
+            tooltipOptions={{ position: 'bottom' }}
+          />
+
+          <Button
+            icon="pi pi-history"
+            className="p-button-secondary p-button-outlined p-button-sm ml-2"
+            onClick={() => setHistoryOpen(true)}
+            tooltip="Histórico recente de instruções executadas"
+            tooltipOptions={{ position: 'bottom' }}
           />
         </div>
 
-        <div className="flex align-items-center gap-3">
-          <span className="tx-badge">
-            <i className="pi pi-shield text-xs mr-1" />
-            TX: <strong>{txStatus}</strong>
-          </span>
-          <Button
-            icon="pi pi-trash"
-            text
-            size="small"
-            title="Clear Editor"
-            onClick={() => {
-              setSql('');
-              setResult(null);
-            }}
-          />
+        <div className="text-xs font-mono text-muted mr-2 flex align-items-center gap-3">
+          {inTx && <span className="text-yellow-400 font-bold">● Transação Aberta</span>}
+          {result?.executionTimeMs !== undefined && (
+            <span>Tempo: {result.executionTimeMs} ms</span>
+          )}
+          {result?.total_rows !== undefined && (
+            <span>Linhas: {result.total_rows}</span>
+          )}
         </div>
       </div>
 
-      {running && <ProgressBar mode="indeterminate" style={{ height: '2px' }} />}
-
-      {/* Code Insight Popup */}
-      {showSuggestions && (
-        <div className="code-insight-bar">
-          <span className="text-xs text-gray-400 mr-2">Code Insight:</span>
-          {suggestions.map((s, idx) => (
-            <button key={idx} className="suggestion-pill" onClick={() => applySuggestion(s)}>
-              {s}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* Query Code Area */}
+      {/* 2. SQL Code Editor Canvas */}
       <div className="ib-query-input-pane astral-query-canvas">
         <div className="astral-line-numbers" aria-hidden="true">
-          {sql.split('\n').map((_, i) => <div key={i}>{i + 1}</div>)}
+          {lineNumbers.map((num) => (
+            <div key={num}>{num}</div>
+          ))}
         </div>
         <textarea
+          ref={editorRef}
           value={sql}
-          onChange={(e) => handleSqlChange(e.target.value)}
-          onScroll={(e) => {
-            const gutter = e.currentTarget.previousElementSibling;
-            if (gutter) gutter.scrollTop = e.currentTarget.scrollTop;
-          }}
+          onChange={(e) => setSql(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'F9' || e.key === 'F5' || (e.key === 'Enter' && (e.ctrlKey || e.metaKey))) {
+            if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
               e.preventDefault();
-              executeQuery(false);
+              executeQuery();
+            } else if (e.key === 'F9') {
+              e.preventDefault();
+              executeQuery();
             }
           }}
-          className="ib-code-editor font-mono"
-          placeholder="Enter SQL script or statements here... (Press F9 to execute)"
+          className="ib-code-editor w-full font-mono text-sm"
+          placeholder="Digite instruções SQL compatíveis com InterBase ou PostgreSQL (ex: SELECT * FROM tabela;)..."
           spellCheck={false}
         />
       </div>
 
-      {/* Results Tabbed Panel */}
+      {executing && <ProgressBar mode="indeterminate" style={{ height: '3px' }} />}
+
+      {/* 3. Results Tabbed Panel */}
       <div className="ib-results-pane">
         <TabView activeIndex={activeBottomTab} onTabChange={(e) => setActiveBottomTab(e.index)}>
           {/* Tab 1: Results Grid */}
@@ -386,9 +369,15 @@ export default function IsqlEditor({ activeDatabase, isConnected, initialSql, on
                 className="ib-data-table font-mono"
                 stripedRows
               >
-                <Column field="__rowNum" header="#" style={{ width: '50px', color: '#888' }} />
+                <Column field="__rowNum" header="#" style={{ width: '50px', color: '#888', textAlign: 'center' }} />
                 {(result?.columns || []).map((col) => (
-                  <Column key={col} field={col} header={col} sortable />
+                  <Column
+                    key={col}
+                    field={col}
+                    header={col}
+                    sortable
+                    body={(r) => formatCell(r[col])}
+                  />
                 ))}
               </DataTable>
             ) : (
@@ -413,95 +402,64 @@ export default function IsqlEditor({ activeDatabase, isConnected, initialSql, on
           {/* Tab 3: Script Output */}
           <TabPanel header="Script Output" leftIcon="pi pi-file">
             <div className="ib-script-output font-mono">
-              <div>-- Execução em {new Date().toLocaleTimeString()}</div>
-              <div>-- Tempo decorrido: {result?.elapsed_ms || 0} ms</div>
-              <div>-- Linhas afetadas: {result?.rows_affected || 0}</div>
-              <div>{result?.message || 'Pronto.'}</div>
-            </div>
-          </TabPanel>
-
-          {/* Tab 4: Execution Log / History */}
-          <TabPanel header={`Query History (${executionLog.length})`} leftIcon="pi pi-history">
-            <div className="ib-history-list">
-              {executionLog.length > 0 ? (
-                executionLog.map((item) => (
-                  <div
-                    key={item.id}
-                    className="history-row font-mono cursor-pointer hover:surface-hover"
-                    onClick={() => {
-                      setSql(item.fullQuery || item.query);
-                      toast.current?.show({ severity: 'info', summary: 'Query Restaurada', detail: 'Consulta recarregada no editor.', life: 1500 });
-                    }}
-                    title="Clique para recarregar esta query no editor"
-                  >
-                    <span className="hist-time">[{item.time}]</span>
-                    <span className="hist-query font-bold text-blue-300">{item.query}</span>
-                    <span className="hist-stats">{item.elapsed}ms · {item.rows} rows · {item.status}</span>
-                  </div>
-                ))
-              ) : (
-                <div className="ib-empty-results">O histórico de queries executadas aparecerá aqui.</div>
-              )}
+              <pre>{result?.message || 'Pronto para executar instruções.'}</pre>
             </div>
           </TabPanel>
         </TabView>
       </div>
 
-      {/* Export Data Modal */}
+      {/* Export Assistant Modal */}
       <Dialog
-        header={<span><i className="pi pi-download text-primary mr-2" />Export Query Results</span>}
+        header="Export Query Result"
         visible={exportModalOpen}
-        style={{ width: '450px' }}
-        modal
+        style={{ width: '400px' }}
         onHide={() => setExportModalOpen(false)}
         footer={
           <div className="flex justify-content-end gap-2">
             <Button label="Cancelar" text onClick={() => setExportModalOpen(false)} />
-            <Button label="Exportar Agora" icon="pi pi-check" onClick={handleExportData} />
+            <Button label="Exportar" icon="pi pi-download" onClick={handleExportData} />
           </div>
         }
       >
         <div className="flex flex-column gap-3 pt-2">
           <div>
-            <label className="text-xs font-bold text-gray-400 block mb-1">Select Format:</label>
+            <label className="text-xs font-bold block mb-1">Formato do Arquivo:</label>
             <Dropdown
               value={exportFormat}
               options={[
-                { label: 'CSV (Comma/Semicolon Separated)', value: 'csv' },
-                { label: 'Excel (Tab Separated UTF-8)', value: 'excel' },
-                { label: 'XML Dataset', value: 'xml' },
-                { label: 'SQL INSERT Statements', value: 'sql' },
+                { label: 'CSV (Valores Separados por Vírgula)', value: 'csv' },
+                { label: 'JSON (Array de Objetos)', value: 'json' },
+                { label: 'SQL (Comandos INSERT)', value: 'sql' },
               ]}
               onChange={(e) => setExportFormat(e.value)}
-              className="w-full p-inputtext-sm font-mono"
+              className="w-full"
             />
           </div>
-          <div className="text-xs text-gray-400">
-            Total de linhas a serem exportadas: <strong>{result?.rows?.length || 0}</strong>
+          <div className="text-xs text-muted">
+            Total de registros a exportar: <strong>{result?.rows?.length || 0}</strong>
           </div>
         </div>
       </Dialog>
 
-      {/* Import Data Modal */}
+      {/* Import Assistant Modal */}
       <Dialog
         header={<span><i className="pi pi-upload text-green-400 mr-2" />Import Data Assistant</span>}
         visible={importModalOpen}
-        style={{ width: '550px' }}
-        modal
+        style={{ width: '500px' }}
         onHide={() => setImportModalOpen(false)}
         footer={
           <div className="flex justify-content-end gap-2">
-            <Button label="Cancelar" text onClick={() => setImportModalOpen(false)} />
+            <Button label="Fechar" text onClick={() => setImportModalOpen(false)} />
             <Button
-              label="Executar Importação"
+              label="Executar Import"
               icon="pi pi-check"
               className="p-button-success"
               onClick={() => {
                 toast.current?.show({
-                  severity: 'success',
-                  summary: 'Importação Concluída',
-                  detail: `Dados importados para ${importTable || 'tabela'}.`,
-                  life: 3000,
+                  severity: 'info',
+                  summary: 'Import Assistant',
+                  detail: `Lendo ${importFile} para a tabela "${importTargetTable}"...`,
+                  life: 4000,
                 });
                 setImportModalOpen(false);
               }}
@@ -511,24 +469,48 @@ export default function IsqlEditor({ activeDatabase, isConnected, initialSql, on
       >
         <div className="flex flex-column gap-3 pt-2">
           <div>
-            <label className="text-xs font-bold text-gray-400 block mb-1">Target Table:</label>
+            <label className="text-xs font-bold block mb-1">Target Table (Tabela Destino):</label>
             <InputText
-              value={importTable}
-              onChange={(e) => setImportTable(e.target.value)}
-              placeholder="ex: public.clientes"
-              className="w-full p-inputtext-sm font-mono"
+              value={importTargetTable}
+              onChange={(e) => setImportTargetTable(e.target.value)}
+              placeholder="ex: bc_core_usuario"
+              className="w-full font-mono p-inputtext-sm"
             />
           </div>
           <div>
-            <label className="text-xs font-bold text-gray-400 block mb-1">Paste CSV / TSV Content:</label>
-            <textarea
-              value={importText}
-              onChange={(e) => setImportText(e.target.value)}
-              placeholder="col1,col2,col3&#10;val1,val2,val3"
-              className="w-full font-mono text-xs p-2 surface-ground text-white border-1 border-gray-700 border-round"
-              style={{ height: '140px', resize: 'none' }}
+            <label className="text-xs font-bold block mb-1">Arquivo Fonte (CSV / JSON / SQL):</label>
+            <InputText
+              value={importFile}
+              onChange={(e) => setImportFile(e.target.value)}
+              placeholder="/caminho/para/dados.csv"
+              className="w-full font-mono p-inputtext-sm"
             />
           </div>
+        </div>
+      </Dialog>
+
+      {/* History Dialog */}
+      <Dialog
+        header="Query History"
+        visible={historyOpen}
+        style={{ width: '600px' }}
+        onHide={() => setHistoryOpen(false)}
+        footer={<Button label="Fechar" text onClick={() => setHistoryOpen(false)} />}
+      >
+        <div className="flex flex-column gap-2 max-h-20rem overflow-y-auto pt-2">
+          {history.map((h, i) => (
+            <div
+              key={i}
+              className="p-2 border-round surface-ground cursor-pointer hover:surface-hover font-mono text-xs flex justify-content-between align-items-center"
+              onClick={() => {
+                setSql(h);
+                setHistoryOpen(false);
+              }}
+            >
+              <span className="text-overflow-ellipsis white-space-nowrap overflow-hidden mr-2">{h}</span>
+              <Button icon="pi pi-arrow-up-left" text size="small" />
+            </div>
+          ))}
         </div>
       </Dialog>
     </div>
