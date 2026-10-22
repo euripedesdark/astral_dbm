@@ -1,0 +1,80 @@
+name: Astral DBM CI - Rust + React
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dbm-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Cargo tests + frontend build + archive
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up stable Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Cargo check
+        run: cargo check --locked --all-targets
+
+      - name: Cargo test
+        run: cargo test --locked --all-targets
+
+      - name: Build optimized Rust binary
+        run: cargo build --release --locked
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install locked frontend dependencies
+        working-directory: web
+        run: npm ci --no-audit --no-fund
+
+      - name: Build Vite frontend
+        working-directory: web
+        run: npm run build
+
+      - name: Validate frontend output
+        run: |
+          test -s dist/index.html
+          test -n "$(find dist/assets -maxdepth 1 -type f -name '*.js' -print -quit)"
+
+      - name: Create deployment archive
+        run: |
+          mkdir -p package/bin package/dist
+          install -m 0755 target/release/astral-dbm package/bin/astral-dbm
+          cp -a dist/. package/dist/
+          tar -czf astral-dbm-linux-x86_64.tar.gz -C package bin dist
+          sha256sum astral-dbm-linux-x86_64.tar.gz > astral-dbm-linux-x86_64.tar.gz.sha256
+
+      - name: Store build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: astral-dbm-linux-x86_64
+          path: |
+            astral-dbm-linux-x86_64.tar.gz
+            astral-dbm-linux-x86_64.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 14

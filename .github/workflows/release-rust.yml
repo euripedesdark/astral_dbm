@@ -1,0 +1,67 @@
+name: Astral DBM CD - Rust Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  github-release:
+    name: Build and publish versioned package with checksum
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Checkout tag
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Verify backend
+        run: |
+          cargo check --locked --all-targets
+          cargo test --locked --all-targets
+
+      - name: Build release binary
+        run: cargo build --release --locked
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install React dependencies
+        working-directory: web
+        run: npm ci --no-audit --no-fund
+
+      - name: Build React/Vite
+        working-directory: web
+        run: npm run build
+
+      - name: Package binary + static files
+        run: |
+          test -s dist/index.html
+          test -n "$(find dist/assets -maxdepth 1 -type f -name '*.js' -print -quit)"
+          mkdir -p package/bin package/dist
+          install -m 0755 target/release/astral-dbm package/bin/astral-dbm
+          cp -a dist/. package/dist/
+          tar -czf astral-dbm-linux-x86_64.tar.gz -C package bin dist
+          sha256sum astral-dbm-linux-x86_64.tar.gz > astral-dbm-linux-x86_64.tar.gz.sha256
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --verify-tag \
+            --generate-notes \
+            astral-dbm-linux-x86_64.tar.gz \
+            astral-dbm-linux-x86_64.tar.gz.sha256
