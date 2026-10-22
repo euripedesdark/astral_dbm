@@ -375,3 +375,59 @@ body {
   white-space: nowrap;
   max-width: 40rem;
 }
+/* Astral desktop workspace: ribbon and split-pane layout */
+:root { --dbm-borda:#414348; --dbm-fundo:#242528; --dbm-painel:#2c2d31; --dbm-topo:#303136; }
+body { background:#27282c; color:#e5e5e8; font-size:13px; }
+.desktop-titlebar { min-height:29px; padding:0 12px; background:linear-gradient(#34353a,#292a2e); }
+.marca { font-size:13px; }
+.marca .pi-database { color:#66a8e3; font-size:16px; }
+.desktop-window-title { position:absolute; left:50%; transform:translateX(-50%); font-size:12px; font-weight:400; color:#ddd; }
+.conexao-atual { font-size:11px; max-width:40%; overflow:hidden; }
+.conexao-atual .url { max-width:190px; }
+.menubar-dbm .p-menubar { min-height:27px; padding:0 7px; background:#2d2e33; }
+.menubar-dbm .p-menubar-root-list > .p-menuitem > .p-menuitem-content > .p-menuitem-link { padding:5px 9px; font-size:12px; }
+.ribbon { background:linear-gradient(#393a40,#33343a); border-bottom:1px solid #505159; }
+.ribbon-tabs { display:flex; height:30px; gap:2px; padding-left:7px; align-items:stretch; }
+.ribbon-tab { background:transparent; border:0; color:#d2d2d7; padding:0 15px; font-size:12px; cursor:pointer; }
+.ribbon-tab.active { background:#46474e; color:#fff; border-top:2px solid #5fa3e6; }
+.ribbon-actions { display:flex; align-items:stretch; min-height:82px; padding:5px 8px 2px; overflow-x:auto; }
+.ribbon-group { display:flex; position:relative; gap:4px; padding:0 14px 17px 4px; margin-right:8px; border-right:1px solid #575861; }
+.ribbon-group button { width:72px; border:0; background:transparent; color:#e0e1e4; display:flex; flex-direction:column; gap:6px; align-items:center; justify-content:center; cursor:pointer; font:11px 'Segoe UI',sans-serif; }
+.ribbon-group button:hover:not(:disabled) { background:#484b54; }
+.ribbon-group button:disabled { opacity:.35; cursor:default; }
+.ribbon-group button i { font-size:25px; color:#79b5eb; }
+.ribbon-group button span { white-space:nowrap; }
+.ribbon-group small { position:absolute; bottom:0; width:calc(100% - 16px); text-align:center; color:#a6a7ae; font-size:9px; letter-spacing:1px; }
+.corpo { background:#252629; }
+.lateral { width:295px; min-width:230px; background:#2b2c30; resize:horizontal; overflow:auto; }
+.lateral.collapsed { display:none; }
+.navigator-caption { padding:8px 10px; font-size:12px; font-weight:600; background:#303137; border-bottom:1px solid #494a50; }
+.navigator-caption i { color:#8aadd0; margin-right:4px; }
+.conexoes-panel { max-height:31%; }
+.painel-titulo { padding:6px 9px; text-transform:none; font-size:11px; letter-spacing:0; }
+.principal { display:flex; flex-direction:column; padding:0; background:#242528; }
+.workspace-caption { padding:7px 12px; height:32px; background:#323339; color:#d5d8df; font-size:12px; display:flex; align-items:center; gap:8px; border-bottom:1px solid #484a50; }
+.workspace-connection { margin-left:auto; font-size:11px; color:#a4a9b2; }
+.principal > .p-tabview { display:flex; flex-direction:column; min-height:0; flex:1; }
+.principal .p-tabview-nav { background:#303137; border-bottom:1px solid #53545a; padding-left:8px; }
+.principal .p-tabview-nav li .p-tabview-nav-link { padding:9px 15px; background:#303137; font-size:12px; border:0; }
+.principal .p-tabview-nav li.p-highlight .p-tabview-nav-link { background:#3c3d43; border-top:2px solid #64a9ef; }
+.principal .p-tabview-panels { display:flex; flex-direction:column; flex:1; min-height:0; padding:0; background:#242528; }
+.principal .p-tabview-panel { height:100%; min-height:0; }
+.sql-console { overflow:hidden; }
+.sql-editor-toolbar { display:flex; align-items:center; gap:5px; min-height:45px; padding:5px 12px; background:#303136; border-bottom:1px solid #45464c; }
+.sql-editor-toolbar .p-button { font-size:12px; padding:7px 11px; }
+.sql-editor-toolbar .run-sql { background:#3ca75a; border-color:#3ca75a; color:white; }
+.sql-editor-region { min-height:120px; flex:1 1 58%; display:flex; overflow:auto; background:#f9f9fa; color:#20262d; border-bottom:5px solid #41434a; }
+.sql-editor-lines { text-align:right; padding:9px 8px; min-width:36px; color:#9a9da5; border-right:1px solid #ddd; font:13px/20px Consolas,monospace; user-select:none; }
+.sql-editor-region .editor-sql { flex:1; border:0; border-radius:0; resize:none; outline:0; min-height:100%; padding:9px; font:13px/20px Consolas,monospace; background:#f9f9fa; color:#253347; white-space:pre; tab-size:4; }
+.sql-results-tabs { display:flex; background:#303137; border-bottom:1px solid #464850; }
+.sql-results-tabs button { background:none; border:0; border-right:1px solid #3b3d43; padding:8px 12px; font-size:12px; color:#c4c6ce; cursor:pointer; }
+.sql-results-tabs button.active { border-top:2px solid #6facdf; color:white; background:#3b3c42; }
+.sql-console .saida { min-height:100px; flex:1 1 36%; margin:0; overflow:auto; background:#2d2e33; }
+.sql-console .saida .p-datatable { font-size:12px; }
+.sql-console .saida .p-datatable-thead > tr > th { padding:6px 9px; white-space:nowrap; }
+.sql-console .saida .p-datatable-tbody > tr > td { padding:4px 9px; white-space:nowrap; }
+.history-entry { display:block; width:100%; text-align:left; padding:9px; background:transparent; border:0; border-bottom:1px solid #45464c; color:#ddd; cursor:pointer; }
+.statusbar { min-height:24px; background:#2d2e33; color:#c2c3c8; }
+@media (max-width:780px) { .desktop-window-title,.conexao-atual .url { display:none; } .lateral { width:235px; min-width:180px; } .ribbon-group button { width:61px; } }
