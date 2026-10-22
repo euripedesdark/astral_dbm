@@ -67,7 +67,7 @@ export default function RibbonBar({
   };
 
   return (
-    <div className="ib-ribbon-bar">
+    <div className="ib-ribbon-bar astral-ribbon-refresh">
       {/* 1. Top InterBase Menu Strip */}
       <div className="ib-menu-strip" ref={menuBarRef}>
         {/* Menu: File */}
@@ -361,10 +361,24 @@ export default function RibbonBar({
         </div>
 
         <div className="ib-brand-title">
-          <span>Astral <strong>DBM</strong> <small>InterBase Workbench</small></span>
+          <span>Astral <strong>DBM</strong> <small>Database Studio</small></span>
         </div>
       </div>
 
+      <div className="astral-workspace-label" aria-live="polite">
+        <div className="astral-workspace-heading">
+          <i className="pi pi-database" aria-hidden="true" />
+          <span>ASTRAL DATABASE STUDIO</span>
+          <small>RUST EDITION</small>
+        </div>
+        <div className="astral-workspace-context">
+          <span>WORKSPACE</span>
+          <strong>{activeDatabase?.nome || 'Nenhum banco selecionado'}</strong>
+          <span className={isConnected ? 'astral-connection-live' : 'astral-connection-idle'}>
+            {isConnected ? '● Conectado' : '○ Desconectado'}
+          </span>
+        </div>
+      </div>
       {/* 2. Ribbon Action Toolbar (Quick Access Buttons) */}
       <div className="ib-action-strip">
         <div className="ib-ribbon-group">
