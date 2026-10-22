@@ -705,6 +705,7 @@ export function PreferencesModal({ visible, onHide, toast }) {
 // 11. NEW TABLE WIZARD MODAL
 // ============================================================================
 export function NewTableModal({ visible, onHide, activeDatabase, onTableCreated, toast }) {
+  const [targetSchema, setTargetSchema] = useState('astral_saas');
   const [tableName, setTableName] = useState('');
   const [columns, setColumns] = useState([
     { name: 'id', type: 'BIGSERIAL', pk: true, notNull: true },
@@ -778,9 +779,15 @@ export function NewTableModal({ visible, onHide, activeDatabase, onTableCreated,
       }
     >
       <div className="flex flex-column gap-3 pt-2">
-        <div>
-          <label className="text-xs font-bold text-gray-400 block mb-1">Table Name:</label>
-          <InputText value={tableName} onChange={(e) => setTableName(e.target.value)} placeholder="ex: clientes, faturas" className="w-full font-mono p-inputtext-sm" />
+        <div className="grid">
+          <div className="col-4">
+            <label className="text-xs font-bold text-gray-400 block mb-1">Schema:</label>
+            <InputText value={targetSchema} onChange={(e) => setTargetSchema(e.target.value)} placeholder="astral_saas" className="w-full font-mono p-inputtext-sm" />
+          </div>
+          <div className="col-8">
+            <label className="text-xs font-bold text-gray-400 block mb-1">Table Name:</label>
+            <InputText value={tableName} onChange={(e) => setTableName(e.target.value)} placeholder="ex: clientes, faturas" className="w-full font-mono p-inputtext-sm" />
+          </div>
         </div>
 
         <div>

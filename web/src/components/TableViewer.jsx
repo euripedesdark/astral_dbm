@@ -8,7 +8,6 @@ import { InputNumber } from 'primereact/inputnumber';
 import { InputTextarea } from 'primereact/inputtextarea';
 import { Dialog } from 'primereact/dialog';
 import { Dropdown } from 'primereact/dropdown';
-import { ConfirmDialog, confirmDialog } from 'primereact/confirmdialog';
 import { ContextMenu } from 'primereact/contextmenu';
 import api from '../api.js';
 
@@ -27,7 +26,7 @@ function getColTypeInfo(colMeta) {
   return { dataType: dt || 'varchar', isNumeric, isBool, isDate, isJson, isLongText };
 }
 
-// Helper: cell renderer that preserves data types (never converts numbers to char)
+// Helper: cell renderer that preserves data types
 function formatCell(val, colMeta) {
   if (val === null || val === undefined || val === 'NULL') {
     return <span className="ib-null-badge">&lt;NULL&gt;</span>;
@@ -58,7 +57,11 @@ function formatCell(val, colMeta) {
   }
 
   if (isJson || typeof val === 'object') {
-    return <span className="ib-json-cell font-mono">{typeof val === 'object' ? JSON.stringify(val) : String(val)}</span>;
+    return (
+      <span className="ib-json-cell font-mono">
+        {typeof val === 'object' ? JSON.stringify(val) : String(val)}
+      </span>
+    );
   }
 
   return <span className="ib-text-cell">{String(val)}</span>;
@@ -79,8 +82,8 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
     indices: table?.indices || [],
   });
 
-  // Settings
-  const [autoSave, setAutoSave] = useState(false);
+  // Settings — Auto-Save ativo por padrão
+  const [autoSave, setAutoSave] = useState(true);
 
   // Selection & In-Place Editing State
   const [selectedRowIndex, setSelectedRowIndex] = useState(0);
@@ -99,6 +102,11 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
   const [recordFormNulls, setRecordFormNulls] = useState({});
   const [recordModalRowIndex, setRecordModalRowIndex] = useState(0);
   const [recordSaving, setRecordSaving] = useState(false);
+
+  // Dedicated Delete Modal
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [rowToDelete, setRowToDelete] = useState(null);
+  const [deletingRow, setDeletingRow] = useState(false);
 
   const cm = useRef(null);
   const cellInputRef = useRef(null);
@@ -144,7 +152,7 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
     }
   }, [table, activeDatabase, schemaName, tableName]);
 
-  // Fetch Live Table Data — KEEP REAL DATA TYPES (never convert all numbers to chars)
+  // Fetch Live Table Data
   const loadData = useCallback(
     async (p = 1) => {
       if (!activeDatabase || !tableName) return;
@@ -162,7 +170,6 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
           };
           cols.forEach((c, idx) => {
             const rawVal = Array.isArray(r) ? r[idx] : r && r[c] !== undefined ? r[c] : r?.[idx];
-            // Store RAW value: null as null, numbers as numbers, bool as bool
             item[c] = rawVal === undefined ? null : rawVal;
           });
           return item;
@@ -173,7 +180,7 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
         setPage(p);
         setDirtyRows({});
         setEditingCell(null);
-        setSelectedRowIndex(0);
+        setSelectedRowIndex((prev) => (prev < mapped.length ? prev : 0));
       } catch (e) {
         toast.current?.show({ severity: 'error', summary: 'Dados', detail: e.message, life: 5000 });
       } finally {
@@ -210,15 +217,31 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
     }
   }, [editingCell]);
 
-  // Find Primary Key Columns
+  // Robust Primary Key Columns resolver
   const getPkColumns = useCallback(() => {
+    // 1. Explicit primary key flag from columns
     const pks = (structure.colunas || [])
       .filter((c) => c.is_primary_key)
       .map((c) => c.name);
     if (pks.length > 0) return pks;
+
+    // 2. Column named id
     if (dataColumns.includes('id')) return ['id'];
-    return [];
-  }, [structure.colunas, dataColumns]);
+
+    // 3. Primary or unique indices
+    const pIdx = (structure.indices || []).find((idx) => idx.is_primary && idx.columns?.length > 0);
+    if (pIdx) return pIdx.columns;
+    const uIdx = (structure.indices || []).find((idx) => idx.is_unique && idx.columns?.length > 0);
+    if (uIdx) return uIdx.columns;
+
+    // 4. Common identifier patterns
+    for (const c of ['uuid', 'codigo', 'cd', 'chave', 'pk']) {
+      if (dataColumns.includes(c)) return [c];
+    }
+
+    // 5. Fallback: first column if present
+    return dataColumns.length > 0 ? [dataColumns[0]] : [];
+  }, [structure.colunas, structure.indices, dataColumns]);
 
   // Helper: find column metadata
   const findColMeta = useCallback(
@@ -232,7 +255,7 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
 
   // --- SAVE ROW DIRECTLY ---
   const saveSingleRow = async (rowKey, modifiedFields, originalRow, isNew = false) => {
-    if (!activeDatabase || !tableName) return;
+    if (!activeDatabase || !tableName) return false;
     const pkCols = getPkColumns();
     if (!isNew && pkCols.length === 0) {
       toast.current?.show({
@@ -243,27 +266,30 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
       });
       return false;
     }
+
     const keys = {};
-    pkCols.forEach((pk) => {
-      const v = originalRow[pk];
-      keys[pk] = v === 'NULL' || v === undefined ? null : v;
-    });
-
-    const valuesToSave = {};
-    const cols = dataColumns.length > 0 ? dataColumns : (structure.colunas || []).map((c) => c.name);
-
-    if (isNew) {
-      cols.forEach((c) => {
-        const v = modifiedFields[c] !== undefined ? modifiedFields[c] : originalRow[c];
-        if (v !== 'NULL' && v !== undefined && v !== null && v !== '') {
-          valuesToSave[c] = v;
-        }
-      });
-    } else {
-      Object.entries(modifiedFields).forEach(([col, val]) => {
-        valuesToSave[col] = val === 'NULL' || val === undefined || val === '' ? null : val;
+    if (!isNew && originalRow) {
+      pkCols.forEach((pk) => {
+        const v = originalRow[pk];
+        keys[pk] = v === 'NULL' || v === undefined ? null : v;
       });
     }
+
+    const valuesToSave = {};
+    Object.entries(modifiedFields).forEach(([col, val]) => {
+      const colMeta = findColMeta(col);
+      const { isNumeric, isBool } = getColTypeInfo(colMeta);
+      if (val === 'NULL' || val === undefined || val === '') {
+        valuesToSave[col] = colMeta?.nullable !== false ? null : '';
+      } else if (isNumeric) {
+        const n = Number(val);
+        valuesToSave[col] = isNaN(n) ? val : n;
+      } else if (isBool) {
+        valuesToSave[col] = val === true || String(val).toLowerCase() === 'true';
+      } else {
+        valuesToSave[col] = val;
+      }
+    });
 
     setSavingCellKey(rowKey);
     try {
@@ -310,8 +336,8 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
       toast.current?.show({
         severity: 'error',
         summary: 'Erro ao Salvar',
-        detail: e.message,
-        life: 5000,
+        detail: e.message || 'Erro de execução SQL no banco de dados',
+        life: 8000,
       });
       return false;
     } finally {
@@ -321,11 +347,13 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
 
   // --- IN-LINE CELL EDITING ---
   const startCellEdit = (row, column) => {
-    if (getPkColumns().includes(column)) {
+    if (!row) return;
+    const pkCols = getPkColumns();
+    if (pkCols.includes(column)) {
       toast.current?.show({
         severity: 'warn',
         summary: 'Chave primária protegida',
-        detail: 'A chave primária não pode ser alterada na grade por segurança.',
+        detail: 'A chave primária não deve ser alterada diretamente na grade.',
         life: 3000,
       });
       return;
@@ -370,7 +398,7 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
 
     let newVal = null;
     if (currentInputValue.trim() === '') {
-      newVal = null;
+      newVal = colMeta?.nullable !== false ? null : '';
     } else if (isNumeric) {
       const n = Number(currentInputValue);
       newVal = isNaN(n) ? currentInputValue : n;
@@ -455,22 +483,19 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
     cols.forEach((c) => {
       if (mode === 'edit' && targetRow) {
         const val = targetRow[c];
-        if (val === null || val === undefined || val === 'NULL') {
-          formData[c] = '';
-          formNulls[c] = true;
-        } else {
-          formData[c] = val;
-          formNulls[c] = false;
-        }
+        const isValNull = val === null || val === undefined || val === 'NULL';
+        formData[c] = isValNull ? '' : val;
+        formNulls[c] = isValNull;
       } else {
         const colMeta = findColMeta(c);
         const defVal = colMeta?.default_value;
-        if (defVal && !defVal.startsWith('nextval') && !defVal.startsWith('gen_random_uuid')) {
+        const isFunc = defVal && /^(nextval|gen_random_uuid|now|current_timestamp|clock_timestamp|uuid_generate)/i.test(defVal);
+        if (defVal && !isFunc) {
           formData[c] = defVal.replace(/^'|'::.*$/g, '');
           formNulls[c] = false;
         } else {
           formData[c] = '';
-          formNulls[c] = colMeta?.nullable !== false;
+          formNulls[c] = false; // Always editable by default!
         }
       }
     });
@@ -510,14 +535,19 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
     const cols = dataColumns.length > 0 ? dataColumns : (structure.colunas || []).map((c) => c.name);
 
     cols.forEach((c) => {
-      if (recordFormNulls[c]) {
-        if (!isNew) valuesToSave[c] = null;
-      } else {
-        const val = recordFormData[c];
-        const colMeta = findColMeta(c);
-        const { isNumeric, isBool } = getColTypeInfo(colMeta);
+      const colMeta = findColMeta(c);
+      const { isNumeric, isBool } = getColTypeInfo(colMeta);
+      const isPk = !!colMeta?.is_primary_key || (pkCols.length === 1 && pkCols[0] === c);
+      const isNullMarked = !!recordFormNulls[c];
+      const val = recordFormData[c];
 
-        if (val !== undefined && val !== null && val !== '') {
+      if (isNew) {
+        // Insert Mode
+        if (isNullMarked) {
+          if (colMeta?.nullable !== false) {
+            valuesToSave[c] = null;
+          }
+        } else if (val !== undefined && val !== null && val !== '') {
           if (isNumeric) {
             const num = Number(val);
             valuesToSave[c] = isNaN(num) ? val : num;
@@ -526,11 +556,39 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
           } else {
             valuesToSave[c] = val;
           }
-        } else if (!isNew) {
+        }
+        // Empties on insert are omitted to allow DB defaults
+      } else {
+        // Update Mode
+        if (isPk) {
+          // Do not update PK column in SET clause
+          return;
+        }
+        if (isNullMarked) {
           valuesToSave[c] = null;
+        } else if (val === undefined || val === null || val === '') {
+          valuesToSave[c] = colMeta?.nullable !== false ? null : '';
+        } else if (isNumeric) {
+          const num = Number(val);
+          valuesToSave[c] = isNaN(num) ? val : num;
+        } else if (isBool) {
+          valuesToSave[c] = val === true || String(val).toLowerCase() === 'true';
+        } else {
+          valuesToSave[c] = val;
         }
       }
     });
+
+    if (Object.keys(valuesToSave).length === 0 && !isNew) {
+      toast.current?.show({
+        severity: 'info',
+        summary: 'Gravação',
+        detail: 'Nenhum campo modificado para atualizar.',
+        life: 2500,
+      });
+      setRecordModalOpen(false);
+      return;
+    }
 
     setRecordSaving(true);
     try {
@@ -546,80 +604,83 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
       toast.current?.show({
         severity: 'success',
         summary: isNew ? 'Novo Registro Inserido' : 'Registro Atualizado',
-        detail: 'Operação concluída com sucesso no banco de dados.',
+        detail: isNew ? 'Registro gravado com sucesso!' : 'Alterações salvas no banco.',
         life: 3000,
       });
 
       setRecordModalOpen(false);
-      loadData(page);
+      await loadData(page);
     } catch (e) {
       toast.current?.show({
         severity: 'error',
         summary: 'Erro ao Gravar',
-        detail: e.message,
-        life: 6000,
+        detail: e.message || 'Erro de execução SQL no banco de dados',
+        life: 8000,
       });
     } finally {
       setRecordSaving(false);
     }
   };
 
-  // --- DBNAVIGATOR ACTIONS ---
+  // --- CRUD ACTIONS ---
   const handleInsertRow = () => {
     openRecordEditor(null, 'insert');
   };
 
   const handleDeleteRow = () => {
     const currentRow = dataRows[selectedRowIndex];
-    if (!currentRow) return;
+    if (!currentRow) {
+      toast.current?.show({
+        severity: 'warn',
+        summary: 'Exclusão',
+        detail: 'Selecione uma linha na tabela para excluir.',
+        life: 3000,
+      });
+      return;
+    }
+    setRowToDelete(currentRow);
+    setDeleteModalOpen(true);
+  };
 
-    confirmDialog({
-      message: `Tem certeza que deseja EXCLUIR o registro #${currentRow.__rowNum} da tabela ${tableName}?`,
-      header: 'Confirmar Exclusão de Registro (DELETE)',
-      icon: 'pi pi-exclamation-triangle text-red-500',
-      acceptClassName: 'p-button-danger',
-      acceptLabel: 'Excluir Definitivamente',
-      rejectLabel: 'Cancelar',
-      accept: async () => {
-        const pkCols = getPkColumns();
-        const keys = {};
-        pkCols.forEach((pk) => {
-          keys[pk] = currentRow[pk];
-        });
-
-        try {
-          await api.removerLinha(activeDatabase.id, schemaName, tableName, keys);
-          toast.current?.show({
-            severity: 'success',
-            summary: 'Exclusão',
-            detail: `Registro #${currentRow.__rowNum} excluído com sucesso!`,
-            life: 3000,
-          });
-          loadData(page);
-        } catch (e) {
-          toast.current?.show({
-            severity: 'error',
-            summary: 'Erro ao Excluir',
-            detail: e.message,
-            life: 5000,
-          });
-        }
-      },
+  const executeDeleteRow = async () => {
+    if (!rowToDelete || !activeDatabase || !tableName) return;
+    const pkCols = getPkColumns();
+    const keys = {};
+    pkCols.forEach((pk) => {
+      keys[pk] = rowToDelete[pk];
     });
+
+    setDeletingRow(true);
+    try {
+      await api.removerLinha(activeDatabase.id, schemaName, tableName, keys);
+      toast.current?.show({
+        severity: 'success',
+        summary: 'Exclusão Concluída',
+        detail: `Registro #${rowToDelete.__rowNum} removido com sucesso.`,
+        life: 3000,
+      });
+      setDeleteModalOpen(false);
+      setRowToDelete(null);
+      await loadData(page);
+    } catch (e) {
+      toast.current?.show({
+        severity: 'error',
+        summary: 'Erro ao Excluir',
+        detail: e.message || 'Falha ao excluir registro.',
+        life: 8000,
+      });
+    } finally {
+      setDeletingRow(false);
+    }
   };
 
   // Manual Post (Batch)
   const handlePostChanges = async () => {
     if (editingCell) {
-      toast.current?.show({
-        severity: 'warn',
-        summary: 'Conclua a edição',
-        detail: 'Pressione Enter para confirmar a célula antes de salvar.',
-        life: 3000,
-      });
-      return;
+      await commitCellEdit();
     }
-    if (getPkColumns().length === 0) {
+    const pkCols = getPkColumns();
+    if (pkCols.length === 0) {
       toast.current?.show({
         severity: 'error',
         summary: 'Edição indisponível',
@@ -642,7 +703,6 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
     setSaving(true);
     let successCount = 0;
     const errors = [];
-    const pkCols = getPkColumns();
 
     for (const key of dirtyKeys) {
       const { original, modified, isNew } = dirtyRows[key];
@@ -688,20 +748,19 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
     if (errors.length === 0) {
       toast.current?.show({
         severity: 'success',
-        summary: 'Post Concluído (✓)',
-        detail: `${successCount} registro(s) gravado(s) com sucesso no banco de dados!`,
+        summary: 'Post Concluído',
+        detail: `${successCount} registro(s) gravado(s) com sucesso.`,
         life: 3000,
       });
       setDirtyRows({});
-      loadData(page);
+      await loadData(page);
     } else {
       toast.current?.show({
         severity: 'error',
-        summary: 'Erro ao Gravar',
-        detail: errors.join('; '),
-        life: 6000,
+        summary: 'Erros na Gravação',
+        detail: errors.join('\n'),
+        life: 8000,
       });
-      loadData(page);
     }
   };
 
@@ -709,77 +768,46 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
     cancelCellEdit();
     setDataRows((prev) =>
       prev
-        .filter((r) => !dirtyRows[r.__rowKey]?.isNew)
+        .filter((r) => !r.__isNew)
         .map((r) => {
-          if (dirtyRows[r.__rowKey]) {
-            return { ...dirtyRows[r.__rowKey].original };
+          const rowKey = r.__rowKey;
+          if (dirtyRows[rowKey]) {
+            return { ...r, ...dirtyRows[rowKey].original, __editingCol: null };
           }
-          return r;
+          return { ...r, __editingCol: null };
         })
     );
     setDirtyRows({});
     toast.current?.show({
-      severity: 'warn',
-      summary: 'Alterações Canceladas (✗)',
-      detail: 'Todas as modificações não gravadas foram descartadas.',
-      life: 2500,
+      severity: 'info',
+      summary: 'Cancelado',
+      detail: 'Alterações pendentes foram descartadas.',
+      life: 2000,
     });
   };
 
-  // Keyboard Shortcuts (Ctrl+S, F2, Insert, Delete)
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      if (subTab !== 3) return;
-
-      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-        e.preventDefault();
-        handlePostChanges();
-      } else if (e.key === 'F2') {
-        e.preventDefault();
-        const r = dataRows[selectedRowIndex];
-        if (r && dataColumns.length > 0) {
-          startCellEdit(r, dataColumns[0]);
-        }
-      } else if (e.key === 'Insert' && !editingCell && !recordModalOpen) {
-        e.preventDefault();
-        handleInsertRow();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [subTab, editingCell, dirtyRows, dataRows, selectedRowIndex, recordModalOpen]);
-
-  // Context Menu Items
+  // Context Menu Actions
   const contextMenuItems = useMemo(
     () => [
       {
-        label: 'Editar Célula Inline (F2)',
-        icon: 'pi pi-pencil text-yellow-400',
+        label: 'Editar Registro no Formulário',
+        icon: 'pi pi-window-maximize text-blue-400',
+        command: () => contextRow && openRecordEditor(contextRow, 'edit'),
+      },
+      {
+        label: 'Novo Registro...',
+        icon: 'pi pi-plus text-green-400',
+        command: () => openRecordEditor(null, 'insert'),
+      },
+      {
+        label: 'Excluir Linha Selecionada',
+        icon: 'pi pi-trash text-red-400',
         command: () => {
-          if (contextRow && contextCol) {
-            startCellEdit(contextRow, contextCol);
-          } else if (contextRow && dataColumns.length > 0) {
-            startCellEdit(contextRow, dataColumns[0]);
+          if (contextRow) {
+            setRowToDelete(contextRow);
+            setDeleteModalOpen(true);
           }
         },
-      },
-      {
-        label: 'Editar Registro no Formulário...',
-        icon: 'pi pi-window-maximize text-blue-400 font-bold',
-        command: () => {
-          if (contextRow) openRecordEditor(contextRow, 'edit');
-        },
-      },
-      {
-        label: 'Novo Registro (Insert)...',
-        icon: 'pi pi-plus text-green-400',
-        command: () => handleInsertRow(),
-      },
-      {
-        label: 'Excluir Registro (Delete)',
-        icon: 'pi pi-trash text-red-400',
-        command: () => handleDeleteRow(),
       },
       { separator: true },
       {
@@ -807,30 +835,38 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
         },
       },
       {
-        label: 'Copiar Conteúdo da Célula',
-        icon: 'pi pi-clone text-teal-400',
+        label: 'Copiar Valor da Célula',
+        icon: 'pi pi-copy text-primary',
         command: () => {
           if (contextRow && contextCol) {
-            const val = contextRow[contextCol];
-            navigator.clipboard.writeText(val === null || val === undefined ? '' : String(val));
-            toast.current?.show({ severity: 'info', summary: 'Copiado', detail: 'Valor copiado', life: 1500 });
+            const v = contextRow[contextCol];
+            navigator.clipboard?.writeText(String(v ?? ''));
+            toast.current?.show({
+              severity: 'info',
+              summary: 'Copiado',
+              detail: `Valor "${v}" copiado para área de transferência.`,
+              life: 1500,
+            });
           }
         },
       },
       {
-        label: 'Copiar Linha como SQL INSERT',
-        icon: 'pi pi-copy text-indigo-400',
+        label: 'Copiar Linha como INSERT SQL',
+        icon: 'pi pi-code text-teal-400',
         command: () => {
           if (!contextRow) return;
           const cols = dataColumns.map((c) => `"${c}"`).join(', ');
           const vals = dataColumns
             .map((c) => {
-              const v = contextRow[c];
-              return v === null || v === undefined ? 'NULL' : `'${String(v).replace(/'/g, "''")}'`;
+              const val = contextRow[c];
+              if (val === null || val === undefined || val === 'NULL') return 'NULL';
+              if (typeof val === 'number') return val;
+              if (typeof val === 'boolean') return val ? 'TRUE' : 'FALSE';
+              return `'${String(val).replace(/'/g, "''")}'`;
             })
             .join(', ');
           const sql = `INSERT INTO "${schemaName}"."${tableName}" (${cols}) VALUES (${vals});`;
-          navigator.clipboard.writeText(sql);
+          navigator.clipboard?.writeText(sql);
           toast.current?.show({
             severity: 'info',
             summary: 'Copiado',
@@ -866,29 +902,24 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
   return (
     <div className="ib-table-viewer">
       <ContextMenu model={contextMenuItems} ref={cm} />
-      <ConfirmDialog />
 
       {/* RECORD FORM EDITOR MODAL (IBExpert Style) */}
       <Dialog
         header={
           <div className="flex align-items-center justify-content-between w-full pr-4">
-            <div className="flex align-items-center gap-2">
-              <i className="pi pi-file-edit text-blue-400 text-lg" />
-              <span className="font-bold font-mono">{modalFormTitle}</span>
-              <span className="text-muted text-xs font-mono ml-2">
-                ({schemaName || 'public'}.{tableName || 'tabela'})
-              </span>
-            </div>
-
-            {recordModalMode === 'edit' && dataRows.length > 0 && (
-              <div className="flex align-items-center gap-1">
+            <span className="font-bold flex align-items-center gap-2">
+              <i className="pi pi-file-edit text-primary" />
+              <span>{modalFormTitle}</span>
+            </span>
+            {recordModalMode === 'edit' && dataRows.length > 1 && (
+              <div className="flex gap-1">
                 <Button
                   icon="pi pi-angle-double-left"
                   size="small"
                   text
                   disabled={recordModalRowIndex <= 0}
                   onClick={() => handleNavigateModalRow('first')}
-                  title="Primeiro Registro"
+                  tooltip="Primeiro Registro"
                 />
                 <Button
                   icon="pi pi-angle-left"
@@ -896,10 +927,10 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
                   text
                   disabled={recordModalRowIndex <= 0}
                   onClick={() => handleNavigateModalRow('prev')}
-                  title="Registro Anterior"
+                  tooltip="Registro Anterior"
                 />
-                <span className="text-xs font-mono px-2 text-gray-300">
-                  {recordModalRowIndex + 1} / {dataRows.length}
+                <span className="px-2 font-mono text-xs text-muted flex align-items-center">
+                  {recordModalRowIndex + 1} de {dataRows.length}
                 </span>
                 <Button
                   icon="pi pi-angle-right"
@@ -907,7 +938,7 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
                   text
                   disabled={recordModalRowIndex >= dataRows.length - 1}
                   onClick={() => handleNavigateModalRow('next')}
-                  title="Próximo Registro"
+                  tooltip="Próximo Registro"
                 />
                 <Button
                   icon="pi pi-angle-double-right"
@@ -915,7 +946,7 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
                   text
                   disabled={recordModalRowIndex >= dataRows.length - 1}
                   onClick={() => handleNavigateModalRow('last')}
-                  title="Último Registro"
+                  tooltip="Último Registro"
                 />
               </div>
             )}
@@ -923,6 +954,7 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
         }
         visible={recordModalOpen}
         style={{ width: '850px', maxWidth: '95vw' }}
+        modal
         onHide={() => setRecordModalOpen(false)}
         footer={
           <div className="flex justify-content-between align-items-center w-full">
@@ -951,7 +983,7 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
           {colsToRenderInForm.map((colName) => {
             const colMeta = findColMeta(colName);
             const { dataType, isNumeric, isBool, isLongText } = getColTypeInfo(colMeta);
-            const isPk = !!colMeta?.is_primary_key;
+            const isPk = !!colMeta?.is_primary_key || (pkCols.length === 1 && pkCols[0] === colName);
             const isNullable = colMeta?.nullable !== false;
             const isNull = recordFormNulls[colName] || false;
             const currentVal = recordFormData[colName];
@@ -966,15 +998,16 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
                   </label>
                   {isNullable && (
                     <Button
-                      label={isNull ? 'NULL (Ativo)' : 'Marcar NULL'}
+                      label={isNull ? 'NULL (Ativo)' : 'Definir NULL'}
                       size="small"
                       text
                       className={`py-0 px-1 text-xs ${
                         isNull ? 'p-button-warning font-bold' : 'p-button-secondary text-muted'
                       }`}
                       onClick={() => {
-                        setRecordFormNulls((prev) => ({ ...prev, [colName]: !prev[colName] }));
-                        if (!isNull) {
+                        const nextNull = !isNull;
+                        setRecordFormNulls((prev) => ({ ...prev, [colName]: nextNull }));
+                        if (nextNull) {
                           setRecordFormData((prev) => ({ ...prev, [colName]: '' }));
                         }
                       }}
@@ -982,62 +1015,120 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
                   )}
                 </div>
 
-                {isNull ? (
-                  <div className="p-inputtext p-inputtext-sm font-mono text-muted italic bg-darker border-dashed border-secondary">
-                    &lt;NULL&gt;
-                  </div>
-                ) : isBool ? (
+                {isBool ? (
                   <Dropdown
                     value={
-                      currentVal === true || String(currentVal).toLowerCase() === 'true'
+                      isNull
+                        ? null
+                        : currentVal === true || String(currentVal).toLowerCase() === 'true'
                         ? 'true'
                         : currentVal === false || String(currentVal).toLowerCase() === 'false'
                         ? 'false'
-                        : ''
+                        : null
                     }
                     options={[
+                      ...(isNullable ? [{ label: '<NULL / Vazio>', value: null }] : []),
                       { label: 'TRUE', value: 'true' },
                       { label: 'FALSE', value: 'false' },
                     ]}
-                    onChange={(e) =>
-                      setRecordFormData((prev) => ({ ...prev, [colName]: e.value === 'true' }))
-                    }
+                    onChange={(e) => {
+                      if (e.value === null) {
+                        setRecordFormNulls((prev) => ({ ...prev, [colName]: true }));
+                        setRecordFormData((prev) => ({ ...prev, [colName]: '' }));
+                      } else {
+                        setRecordFormNulls((prev) => ({ ...prev, [colName]: false }));
+                        setRecordFormData((prev) => ({ ...prev, [colName]: e.value === 'true' }));
+                      }
+                    }}
                     className="p-inputtext-sm font-mono"
-                    placeholder="Selecione..."
+                    placeholder={isNull ? '<NULL>' : 'Selecione...'}
                   />
                 ) : isNumeric ? (
                   <InputNumber
                     value={
-                      currentVal !== '' && currentVal !== null && currentVal !== undefined && !isNaN(Number(currentVal))
-                        ? Number(currentVal)
-                        : null
+                      isNull || currentVal === '' || currentVal === null || currentVal === undefined
+                        ? null
+                        : Number(currentVal)
                     }
-                    onValueChange={(e) =>
-                      setRecordFormData((prev) => ({ ...prev, [colName]: e.value }))
-                    }
+                    onValueChange={(e) => {
+                      setRecordFormNulls((prev) => ({ ...prev, [colName]: false }));
+                      setRecordFormData((prev) => ({ ...prev, [colName]: e.value !== null && e.value !== undefined ? e.value : '' }));
+                    }}
                     className="p-inputtext-sm font-mono w-full"
-                    placeholder="0"
+                    placeholder={isNull ? '<NULL>' : isPk && recordModalMode === 'insert' ? '(Automático no Banco)' : '0'}
                   />
                 ) : isLongText ? (
                   <InputTextarea
-                    value={currentVal ?? ''}
-                    onChange={(e) => setRecordFormData((prev) => ({ ...prev, [colName]: e.target.value }))}
+                    value={isNull ? '' : (currentVal ?? '')}
+                    onChange={(e) => {
+                      setRecordFormNulls((prev) => ({ ...prev, [colName]: false }));
+                      setRecordFormData((prev) => ({ ...prev, [colName]: e.target.value }));
+                    }}
                     rows={3}
                     autoResize
                     className="p-inputtext-sm font-mono w-full"
-                    placeholder={`Valor de ${colName}...`}
+                    placeholder={isNull ? '<NULL>' : `Valor de ${colName}...`}
                   />
                 ) : (
                   <InputText
-                    value={currentVal ?? ''}
-                    onChange={(e) => setRecordFormData((prev) => ({ ...prev, [colName]: e.target.value }))}
+                    value={isNull ? '' : (currentVal ?? '')}
+                    onChange={(e) => {
+                      setRecordFormNulls((prev) => ({ ...prev, [colName]: false }));
+                      setRecordFormData((prev) => ({ ...prev, [colName]: e.target.value }));
+                    }}
                     className="p-inputtext-sm font-mono w-full"
-                    placeholder={`Valor de ${colName}...`}
+                    placeholder={isNull ? '<NULL>' : isPk && recordModalMode === 'insert' ? '(Automático no Banco)' : `Valor de ${colName}...`}
                   />
                 )}
               </div>
             );
           })}
+        </div>
+      </Dialog>
+
+      {/* DEDICATED DELETE CONFIRMATION MODAL */}
+      <Dialog
+        header={<span><i className="pi pi-exclamation-triangle text-red-500 mr-2" />Confirmar Exclusão de Registro (DELETE)</span>}
+        visible={deleteModalOpen}
+        style={{ width: '480px' }}
+        modal
+        onHide={() => !deletingRow && setDeleteModalOpen(false)}
+        footer={
+          <div className="flex justify-content-end gap-2">
+            <Button
+              label="Cancelar"
+              icon="pi pi-times"
+              className="p-button-secondary p-button-sm"
+              disabled={deletingRow}
+              onClick={() => setDeleteModalOpen(false)}
+            />
+            <Button
+              label="Excluir Definitivamente"
+              icon="pi pi-trash"
+              className="p-button-danger p-button-sm font-bold"
+              loading={deletingRow}
+              onClick={executeDeleteRow}
+            />
+          </div>
+        }
+      >
+        <div className="pt-2">
+          <p className="m-0 text-sm">
+            Tem certeza que deseja apagar o registro <strong>#{rowToDelete?.__rowNum}</strong> da tabela <strong>{tableName}</strong>?
+          </p>
+          {rowToDelete && (
+            <div className="mt-3 p-2 bg-darker border-1 border-secondary border-round font-mono text-xs">
+              {getPkColumns().map((pk) => (
+                <div key={pk} className="py-1">
+                  <strong>{pk}:</strong> <span className="text-yellow-300">{String(rowToDelete[pk])}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          <p className="text-xs text-red-400 mt-3 mb-0">
+            <i className="pi pi-info-circle mr-1" />
+            Esta operação executará um comando DELETE definitivo no banco de dados.
+          </p>
         </div>
       </Dialog>
 
@@ -1048,15 +1139,14 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
           <span className="font-bold text-lg font-mono">
             {schemaName || 'public'}.{tableName || 'Tabela'}
           </span>
-          <span className="text-muted text-xs font-mono ml-2">
-            ({structure.colunas?.length || 0} fields · {structure.indices?.length || 0} indices)
-          </span>
+          <span className="text-xs text-muted font-mono">({totalRows} registros no total)</span>
         </div>
-
-        {hasDirty && !autoSave && (
-          <div className="flex align-items-center gap-2 px-3 py-1 bg-yellow-900 border-round text-yellow-200 text-xs font-bold font-mono">
-            <i className="pi pi-pencil" />
-            <span>{Object.keys(dirtyRows).length} registro(s) modificado(s) pendente(s)</span>
+        {hasDirty && (
+          <div className="flex align-items-center">
+            <span className="text-xs text-yellow-400 font-bold mr-2">
+              <i className="pi pi-exclamation-circle mr-1" />
+              {Object.keys(dirtyRows).length} registro(s) pendente(s) de gravação
+            </span>
             <Button
               icon="pi pi-check"
               label="Gravar Agora (Post)"
@@ -1131,48 +1221,47 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
           </DataTable>
         </TabPanel>
 
-        {/* SubTab 4: Live Data Grid with In-Place Cell Editing, DBNavigator & Form Editor */}
-        <TabPanel header={`Data (${totalRows})`} leftIcon="pi pi-database">
-          {/* Classic Delphi / InterBase / IBExpert DBNavigator Bar */}
-          <div className="ib-dbnavigator-bar flex flex-wrap justify-content-between align-items-center mb-2 p-2 bg-darker border-1 border-secondary border-round">
-            {/* VCR Record Navigation Buttons */}
+        {/* SubTab 4: Data Grid (Live Interactive Editing) */}
+        <TabPanel header={`Data (${totalRows})`} leftIcon="pi pi-table">
+          <div className="ib-grid-toolbar flex justify-content-between align-items-center mb-2 px-1">
             <div className="flex align-items-center gap-1">
+              {/* Pagination Controls */}
               <Button
                 icon="pi pi-angle-double-left"
-                className="p-button-sm p-button-secondary p-button-outlined"
-                tooltip="Primeiro Registro (|<)"
+                className="p-button-sm p-button-secondary p-button-text"
+                tooltip="Primeira Página"
                 tooltipOptions={{ position: 'bottom' }}
-                disabled={dataRows.length === 0 || selectedRowIndex === 0}
-                onClick={() => setSelectedRowIndex(0)}
+                disabled={page <= 1}
+                onClick={() => loadData(1)}
               />
               <Button
                 icon="pi pi-angle-left"
-                className="p-button-sm p-button-secondary p-button-outlined"
-                tooltip="Registro Anterior (<)"
+                className="p-button-sm p-button-secondary p-button-text"
+                tooltip="Página Anterior"
                 tooltipOptions={{ position: 'bottom' }}
-                disabled={dataRows.length === 0 || selectedRowIndex <= 0}
-                onClick={() => setSelectedRowIndex((prev) => Math.max(0, prev - 1))}
+                disabled={page <= 1}
+                onClick={() => loadData(page - 1)}
               />
               <Button
                 icon="pi pi-angle-right"
-                className="p-button-sm p-button-secondary p-button-outlined"
-                tooltip="Próximo Registro (>)"
+                className="p-button-sm p-button-secondary p-button-text"
+                tooltip="Próxima Página"
                 tooltipOptions={{ position: 'bottom' }}
-                disabled={dataRows.length === 0 || selectedRowIndex >= dataRows.length - 1}
-                onClick={() => setSelectedRowIndex((prev) => Math.min(dataRows.length - 1, prev + 1))}
+                disabled={page * 50 >= totalRows}
+                onClick={() => loadData(page + 1)}
               />
               <Button
                 icon="pi pi-angle-double-right"
-                className="p-button-sm p-button-secondary p-button-outlined"
-                tooltip="Último Registro (>|)"
+                className="p-button-sm p-button-secondary p-button-text"
+                tooltip="Última Página"
                 tooltipOptions={{ position: 'bottom' }}
-                disabled={dataRows.length === 0 || selectedRowIndex === dataRows.length - 1}
-                onClick={() => setSelectedRowIndex(dataRows.length - 1)}
+                disabled={page * 50 >= totalRows}
+                onClick={() => loadData(Math.ceil(totalRows / 50))}
               />
 
               <div className="border-left-1 border-secondary mx-2" style={{ height: '24px' }} />
 
-              {/* CRUD & Record View Controls */}
+              {/* CRUD Controls */}
               <Button
                 icon="pi pi-plus"
                 label="Inserir (+)"
@@ -1185,7 +1274,7 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
                 icon="pi pi-window-maximize"
                 label="Editar no Formulário"
                 className="p-button-sm p-button-info p-button-outlined font-bold"
-                tooltip="Abrir formulário de registro (IBExpert Record View)"
+                tooltip="Abrir formulário de registro"
                 tooltipOptions={{ position: 'bottom' }}
                 disabled={dataRows.length === 0}
                 onClick={() => openRecordEditor(dataRows[selectedRowIndex], 'edit')}
@@ -1283,7 +1372,7 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
               </span>
               <Button icon="pi pi-search" size="small" text onClick={() => loadData(1)} />
 
-              <div className="flex gap-1 align-items-center ml-2">
+              <div className="flex align-items-center gap-1 ml-2">
                 <Button
                   icon="pi pi-chevron-left"
                   size="small"
@@ -1310,6 +1399,18 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
             <DataTable
               value={dataRows}
               dataKey="__rowKey"
+              selectionMode="single"
+              selection={dataRows[selectedRowIndex] || null}
+              onSelectionChange={(e) => {
+                if (e.value) {
+                  const idx = dataRows.findIndex((r) => r.__rowKey === e.value.__rowKey);
+                  if (idx >= 0) setSelectedRowIndex(idx);
+                }
+              }}
+              onRowClick={(e) => {
+                const idx = dataRows.findIndex((r) => r.__rowKey === e.data?.__rowKey);
+                if (idx >= 0) setSelectedRowIndex(idx);
+              }}
               size="small"
               scrollable
               scrollHeight="calc(100vh - 310px)"
@@ -1369,8 +1470,8 @@ export default function TableViewer({ activeDatabase, table, initialSubTab = 3, 
               {/* Dynamic Columns with In-Place Cell Editing */}
               {dataColumns.map((colName) => {
                 const colMeta = findColMeta(colName);
-                const { dataType, isNumeric } = getColTypeInfo(colMeta);
-                const colType = dataType ? `(${dataType})` : '';
+                const { isNumeric } = getColTypeInfo(colMeta);
+                const colType = colMeta?.data_type;
 
                 return (
                   <Column

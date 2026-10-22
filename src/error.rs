@@ -70,6 +70,12 @@ impl IntoResponse for DbmError {
 
 impl From<tokio_postgres::Error> for DbmError {
     fn from(err: tokio_postgres::Error) -> Self {
-        DbmError::Query(err.to_string())
+        if let Some(db_err) = err.as_db_error() {
+            let detail = db_err.detail().map(|d| format!(" ({})", d)).unwrap_or_default();
+            let hint = db_err.hint().map(|h| format!(" [Dica: {}]", h)).unwrap_or_default();
+            DbmError::Query(format!("{}{}{}", db_err.message(), detail, hint))
+        } else {
+            DbmError::Query(err.to_string())
+        }
     }
 }
