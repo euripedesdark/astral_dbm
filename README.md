@@ -1,5 +1,12 @@
 # Astral DBM — Astral Database Manager
 
+<p align="center">
+  <a href="README.pt-BR.md"><b>🇧🇷 Português (Brasil)</b></a> &bull;
+  <a href="README.en-US.md">🇺🇸 English</a> &bull;
+  <a href="README.es-ES.md">🇪🇸 Español</a> &bull;
+  <a href="README.fr-FR.md">🇫🇷 Français</a>
+</p>
+
 Gerenciador de bancos web, no estilo **IBConsole (Interbase)**: árvore de objetos
 à esquerda, grade de dados, estrutura e console SQL. Produto **separado** do
 Astral Platform (spec §0.14/§0.16) — este repositório contém a especificação, a
@@ -119,3 +126,15 @@ Menus de Objetos (designer), Rotinas, Backup/Restore, Ferramentas DBA,
 Inteligência (Query Risk) e Segurança/RBAC (§0.19, §13.8). A autenticação de
 produção é o token do Astral — o ponto de extensão está em
 `config/SecurityConfig.java`.
+## 🔐 Política Unificada de Acesso e Autenticação
+
+Em conformidade com a arquitetura de segurança do ecossistema Astral, o acesso ao **Astral DBM** adota a política unificada de 4 vias:
+
+1. **OAuth2 / Samba Active Directory / Postgres**:
+   - Autenticação federada orquestrada via `astral-auth-service` (`http://127.0.0.1:8181`). Usuários e administradores do domínio Samba AD são mapeados com suas devidas permissões corporativas.
+2. **Via `auth-service` (SSO)**:
+   - Validação direta de cabeçalhos `Authorization: Bearer <token>` e cookies de sessão (`sso_token` e `astral_token`) validados com o segredo compartilhado (`AUTH_TOKEN_SECRET` em `/etc/auth-service/auth.env`).
+3. **Usuário Local Linux (`root` ou `sudo`)**:
+   - Autenticação com credenciais locais do sistema operacional (PAM/shadow). O usuário deve ser `root` ou pertencer aos grupos administrativos `wheel` ou `sudo`.
+4. **Superusuário PostgreSQL**:
+   - Qualquer superusuário do PostgreSQL local com atributo `rolsuper = true` (como o usuário padrão `postgres`) possui permissão direta de acesso administrativo ao console.
